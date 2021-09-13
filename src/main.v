@@ -62,7 +62,7 @@ always @(*) begin
 	32'd4: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
-		softreg_req_addr = `READ_WORDS
+		softreg_req_addr = `READ_WORDS;
 		softreg_req_data = 64'd4;
 	end
 	32'd8: begin
@@ -145,7 +145,7 @@ axi_emu #(
 	.bready_m(bready_m)
 );
 
-Pfxsum pfxsum (
+PageRank pagerank(
 	.clk(clk),
 	.rst(rst),
 	

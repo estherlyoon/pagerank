@@ -1,6 +1,6 @@
 `include "src/constants.v"
  
-module Pfxsum(
+module PageRank(
 	input clk,
 	input rst,
 	
@@ -56,33 +56,6 @@ localparam WAIT = 0;
 localparam READ = 1;
 localparam COMPUTE = 2;
 
-// pfxsum states
-localparam UP = 0;
-localparam INT = 1;
-localparam DOWN = 2;
-localparam SUM_DONE = 3;
-
-// to transition between reads
-reg [7:0] data_state = WAIT;
-// to transition between states of pfxsum execution
-reg [7:0] pfxsum_state = UP;
-reg [63:0] total_sum;
-// current level for sweep, log2-based
-reg [15:0] level = 0;
-// input vector 
-reg [511:0] ivec;
-// output vector 
-reg [511:0] ovec;
-// in-place array to compute pfxsum
-reg [INT_W-1:0] vec [V_LEN-1:0];
-// logic to check state
-reg zeroed;
-reg data_ready;
-reg once = 0;
-reg sum_done;
-reg all_done;
-reg [7:0] data_delay;
-
 wire [INT_W-1:0] lvals [V_LEN-1:0];
 wire [INT_W-1:0] rvals [V_LEN-1:0];
  
@@ -97,9 +70,10 @@ always @(*) begin
 
 	rready_m = 1; // read data and response info can be accepted
 
-	ivec = rdata_m;
+	/* ivec = rdata_m; */
 
-	if (data_state == READ) begin
+	/* if (data_state == READ) begin */
+	if (0) begin
 		araddr_m = curr_addr;
 		arlen_m = 0;
 		arvalid_m = 1;
@@ -112,13 +86,13 @@ always @(*) begin
 	awaddr_m = 0;
 	awlen_m = 0;
 	awsize_m = 3'b110; // 64 bytes transferred per burst
-	awvalid_m = sum_done; // address is valid
+	awvalid_m = 0; // address is valid
 
 	wid_m = 0;
-	wdata_m = ovec;
+	wdata_m = 0; // TODO output array
 	wstrb_m = 64'hFFFFFFFFFFFFFFFF;
-	wlast_m = all_done;
-	wvalid_m = sum_done; // write data is valid
+	wlast_m = 0;
+	wvalid_m = 0;
 
 	bready_m = 1;
 end
@@ -129,30 +103,25 @@ reg [31:0] base_words;
 reg [63:0] curr_addr;
 reg [31:0] curr_words;
 
+// TODO loop between read/write/compute states
 always @(posedge clk) begin
-	case(data_state)
+	case(0) // TODO
 		WAIT: begin
 			// wait for start
 			curr_addr <= base_addr;
 			curr_words <= base_words;
-			data_delay <= 2;
 
 			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `READ_INFO)
-				data_state <= READ;
+				$display("TODO");
 		end
 		READ: begin
 			// read vector
 			if (arready_m) begin
 				curr_addr <= curr_addr + 64;
 				curr_words <= curr_words - 1;
-				data_delay <= data_delay - 1;
-				if (data_delay == 0)
-					data_state <= COMPUTE;
 			end
 		end
 		COMPUTE: begin
-			// start pfxsum computation
-			// TODO reset after each sum
 		end
 	endcase
 
@@ -164,66 +133,11 @@ always @(posedge clk) begin
 	end
 
 	if (rst)
-		data_state <= 0;
+		$display("TODO");
 end
 
-genvar n;
-generate
-for (n = 0; n < V_LEN; n = n + 1) begin
-	assign lvals[n] = n + 2 ** level - 1;
-	assign rvals[n] = n + 2 ** (level + 1) - 1;
 
-	always @(*) begin
-		// reflatten vec for output
-		ovec[(n+1)*INT_W-1:n*INT_W] = vec[n];
-	end
-	
-	always @(posedge clk) begin
-		// initialize vec, unflatten into 2d array
-		if (data_delay == 1 && !once) begin
-			vec[n] <= ivec[(n+1)*INT_W-1:n*INT_W];
-			once <= 1;
-		end
-
-		if (data_state == COMPUTE & rvals[n] < V_LEN & n % (2 ** (level+1)) == 0) begin
-			if (pfxsum_state == UP) begin
-				vec[rvals[n]] <= vec[lvals[n]] + vec[rvals[n]];
-			end
-			if (pfxsum_state == DOWN) begin
-				vec[lvals[n]] <= vec[rvals[n]];
-				vec[rvals[n]] <= vec[lvals[n]] + vec[rvals[n]];
-			end
-		end
-	end
-end
-endgenerate
-
-// state machine for pfxsum stages
-always @(posedge clk) begin
-	if (data_state == COMPUTE) begin
-		case(pfxsum_state)
-			UP: begin
-				// check if done with up-sweep
-				if (level == $clog2(V_LEN) - 1)
-					pfxsum_state <= INT;
-				else level <= level + 1;
-			end
-			INT: begin
-				// save sum, zero out top element
-				total_sum <= vec[V_LEN-1];
-				vec[V_LEN-1] <= 0;
-				pfxsum_state <= DOWN;
-			end
-			DOWN: begin
-				level <= level - 1;
-				if (level == 0) pfxsum_state <= SUM_DONE;
-			end
-			SUM_DONE: begin
-				sum_done <= 1;
-			end
-		endcase
-	end
-end
+// TODO PageRank logic
 
 // output logic
 reg sr_resp_valid;
@@ -234,18 +148,7 @@ assign softreg_resp_data = sr_resp_data;
 always @(posedge clk) begin 
 	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
 	if (softreg_req_valid & !softreg_req_isWrite & softreg_req_addr == `ROUND_DONE)
-		sr_resp_data <= total_sum;
+		sr_resp_data <= 0; // TODO 
 end
-
-// DEBUG
-genvar i;
-generate
-for (i = 0; i < V_LEN; i = i + 1) begin
-	always @(posedge clk) begin
-		/* if (pfxsum_state == UP & level == 0 | $clog2(V_LEN) - 1 == level + 1) $display("up %d: %h", i, vec[i]); */
-		//if (pfxsum_state == DOWN) $display("arr %d: %h", i, vec[i]);
-	end
-end
-endgenerate
 
 endmodule
