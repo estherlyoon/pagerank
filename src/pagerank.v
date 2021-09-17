@@ -48,7 +48,7 @@ module PageRank(
 
 // length of integers in bits
 localparam INT_W = 64;
-localparam RATIO = 4;
+localparam RATIO = 4; // number of empty slots in in-edge 
 localparam LOG_R = $clog2(RATIO);
 
 // pr states
@@ -78,7 +78,7 @@ always @(*) begin
 	arid_m = 0;
 	araddr_m = 0; // make sure this is 64-byte aligned
 	// make sure arlen doesn't cross page boundaries
-	arlen_m = 0; // specifies # transfers per burst, 1 is default I think, not sure if should change
+	arlen_m = 0; // specifies # transfers per burst, use default; no savings for reading <512 bits
 	arsize_m = 3'b011; // 8 bytes transferred per burst
 	arvalid_m = 0;
 
@@ -86,7 +86,7 @@ always @(*) begin
 	rready_m = 1;
 
 	vert_fifo_wrreq = rvalid_m && (rid_m == 0)
-	vert_fifo_in = rdata_m;
+	vert_fifo_in = rdata_m[63:0]; // TODO is this correct?
 
 	/* inedge_fifo_wrreq = rvalid_m && (rid_m == 1) */
 	/* inedge_fifo_in = rdata_m; */
@@ -94,18 +94,18 @@ always @(*) begin
 	// TODO fields for determining stride
 	
 	case(pr_state)
-		0: begin
+		READ_VERT: begin
 			arid_m = 0;
 			araddr_m = v_addr;
 			arlen_m = 0; // TODO ?
   			// only request reads when fifo is empty
 			arvalid_m = 1 & !vert_fifo_full;
 		end
-		1: begin
+		READ_INEDGES: begin
 			arid_m = 1;       
 			araddr_m = ie_addr;
 			arlen_m = 0; // TODO ?
-			arvalid_m = 1;
+			arvalid_m = 1; // TODO & !ie_fifo_full;
 		end
 	end
 end
@@ -144,7 +144,7 @@ reg [63:0] ie_addr;
 reg [63:0] n_inedges;
 // id of current edge being fetched
 reg [63:0] ie_to_fetch;
-reg [LOG_R-1:0] read_count; // TODO LOG_R bits?
+reg [3:0] ie_batch; // number of in-edges to fetch at "once"
 
 // id of current vertex being processed
 reg [63:0] vert_processing;
@@ -158,32 +158,35 @@ always @(posedge clk) begin
 			vert_to_fetch <= n_vertices;
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
-			read_count <= 0;
+			ie_batch <= 4; // TODO
 
 			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `READ_PARAMS)
 				pr_state <= READ_VERT;
 		end                
 		READ_VERT: begin
 			// read in one element from vertex array
-			if (arready_m) begin
+			if (arready_m & arvalid_m) begin
 				v_addr <= v_addr + INT_W/8;
 				vert_to_fetch <= vert_to_fetch - 1;
 				pr_state <= READ_INEDGES;
 			end  
 		end
 		READ_INEDGES: begin
-			if (arready_m) begin
+			if (arready_m & arvalid_m) begin
 				ie_addr <= ie_addr + INT_W/8;	
 				ie_to_fetch <= ie_to_fetch - 1;	
+				// TODO add every time an in-edge is pulled out, subtract 1
+				ie_batch <= ie_batch - 1; // this represents fullness level of FIFO
 			end
-			pr_state <= CONTROL;
+			if (ie_to_fetch == 0 | ie_batch == 0)
+				pr_state <= CONTROL;
 		end
 		CONTROL: begin
-			read_count <= read_count + 1;
-			if (read_count > RATIO-1)
-				pr_state <= READ_INEDGES;
 			else if (vert_to_fetch > 0)
 				pr_state <= READ_VERT;
+			else if (ie_to_fetch > 0) begin
+				pr_state <= READ_INEDGES;
+			end
 			else
 				pr_state <= WAIT;
 		end
