@@ -47,36 +47,66 @@ module PageRank(
 );    
 
 // length of integers in bits
-localparam INT_W = 8;
-// length of array to sum
-localparam V_LEN = 64;
+localparam INT_W = 64;
+localparam RATIO = 4;
+localparam LOG_R = $clog2(RATIO);
 
-// data states
+// pr states
 localparam WAIT = 0;
-localparam READ = 1;
-localparam COMPUTE = 2;
+localparam READ_VERT = 1;
+localparam READ_INEDGES = 2;
+localparam CONTROL = 3;
+reg [7:0] pr_state = 0;
 
-wire [INT_W-1:0] lvals [V_LEN-1:0];
-wire [INT_W-1:0] rvals [V_LEN-1:0];
- 
+// counters and parameters
+// total number of PageRank iterations to complete
+reg [63:0] total_rounds;
+// number of iterations completed so far
+reg [63:0] rounds_completed;
+
+// vertex FIFO signals
+reg vert_fifo_wrreq;
+reg [63:0] vert_fifo_in;
+wire vert_fifo_full;
+wire vert_fifo_rdreq;
+wire [63:0] vert_fifo_out;
+wire vert_fifo_empty;
+
 
 // read interface
 always @(*) begin
 	arid_m = 0;
-	araddr_m = 0;
-	arlen_m = 0; // I don't think this should change?
-	arsize_m = 3'b110; // 64 bytes transferred per burst
+	araddr_m = 0; // make sure this is 64-byte aligned
+	// make sure arlen doesn't cross page boundaries
+	arlen_m = 0; // specifies # transfers per burst, 1 is default I think, not sure if should change
+	arsize_m = 3'b011; // 8 bytes transferred per burst
 	arvalid_m = 0;
 
-	rready_m = 1; // read data and response info can be accepted
+  	// indicates read data and response info can be accepted
+	rready_m = 1;
 
-	/* ivec = rdata_m; */
+	vert_fifo_wrreq = rvalid_m && (rid_m == 0)
+	vert_fifo_in = rdata_m;
 
-	/* if (data_state == READ) begin */
-	if (0) begin
-		araddr_m = curr_addr;
-		arlen_m = 0;
-		arvalid_m = 1;
+	/* inedge_fifo_wrreq = rvalid_m && (rid_m == 1) */
+	/* inedge_fifo_in = rdata_m; */
+
+	// TODO fields for determining stride
+	
+	case(pr_state)
+		0: begin
+			arid_m = 0;
+			araddr_m = v_addr;
+			arlen_m = 0; // TODO ?
+  			// only request reads when fifo is empty
+			arvalid_m = 1 & !vert_fifo_full;
+		end
+		1: begin
+			arid_m = 1;       
+			araddr_m = ie_addr;
+			arlen_m = 0; // TODO ?
+			arvalid_m = 1;
+		end
 	end
 end
 
@@ -97,31 +127,65 @@ always @(*) begin
 	bready_m = 1;
 end
 
-// vector read state (addr to read from, # ints to read)
-reg [63:0] base_addr;                      
-reg [31:0] base_words;
-reg [63:0] curr_addr;
-reg [31:0] curr_words;
+// vector read states
+// start of vertice array
+reg [63:0] v_base_addr;                      
+// current address to read vertex info from
+reg [63:0] v_addr;                      
+// total number of vertices
+reg [63:0] n_vertices;
+// id of current vertex being fetched
+reg [63:0] vert_to_fetch;
+// start of in-edge array
+reg [63:0] ie_base_addr;                      
+// current address to read in-edge # from
+reg [63:0] ie_addr;                      
+// total number of edges
+reg [63:0] n_inedges;
+// id of current edge being fetched
+reg [63:0] ie_to_fetch;
+reg [LOG_R-1:0] read_count; // TODO LOG_R bits?
 
-// TODO loop between read/write/compute states
+// id of current vertex being processed
+reg [63:0] vert_processing;
+
+// read in all vertices, all in-edges. when done with current round, repeat
 always @(posedge clk) begin
-	case(0) // TODO
+	case(pr_state)
 		WAIT: begin
 			// wait for start
-			curr_addr <= base_addr;
-			curr_words <= base_words;
+			v_addr <= v_base_addr;
+			vert_to_fetch <= n_vertices;
+			ie_addr <= ie_base_addr;
+			ie_to_fetch <= n_inedges;
+			read_count <= 0;
 
-			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `READ_INFO)
-				$display("TODO");
-		end
-		READ: begin
-			// read vector
+			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `READ_PARAMS)
+				pr_state <= READ_VERT;
+		end                
+		READ_VERT: begin
+			// read in one element from vertex array
 			if (arready_m) begin
-				curr_addr <= curr_addr + 64;
-				curr_words <= curr_words - 1;
-			end
+				v_addr <= v_addr + INT_W/8;
+				vert_to_fetch <= vert_to_fetch - 1;
+				pr_state <= READ_INEDGES;
+			end  
 		end
-		COMPUTE: begin
+		READ_INEDGES: begin
+			if (arready_m) begin
+				ie_addr <= ie_addr + INT_W/8;	
+				ie_to_fetch <= ie_to_fetch - 1;	
+			end
+			pr_state <= CONTROL;
+		end
+		CONTROL: begin
+			read_count <= read_count + 1;
+			if (read_count > RATIO-1)
+				pr_state <= READ_INEDGES;
+			else if (vert_to_fetch > 0)
+				pr_state <= READ_VERT;
+			else
+				pr_state <= WAIT;
 		end
 	endcase
 
@@ -133,11 +197,29 @@ always @(posedge clk) begin
 	end
 
 	if (rst)
-		$display("TODO");
+		pr_state <= WAIT;
 end
 
+// FIFO for vertex + offset
+HullFIFO #(
+	.TYPE(0),
+	.WIDTH(64), // maybe? id + offset = 2 * 64
+	.LOG_DEPTH(4) // buffer 16 vertices at once
+) vertex_fifo (
+	.clock(clk),
+	.reset_n(~rst),
+	.wrreq(vert_fifo_wrreq),
+	.data(vert_fifo_in),
+	.full(vert_fifo_full),
+	.rdreq(vert_fifo_rdreq),
+	.q(vert_fifo_out),
+	.empty(vert_fifo_empty)
+);
 
-// TODO PageRank logic
+// FIFO for in-edges
+
+
+// PageRank logic
 
 // output logic
 reg sr_resp_valid;

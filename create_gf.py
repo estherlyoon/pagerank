@@ -9,7 +9,7 @@ import networkx as nx
 """ 
 mem_init.hex structure:
 	n_vertices | n_edges | vertex map | in-edges map | # out-edges map
-	everything is represented as a 32-bit integer (written as 8 hex characters), but this could be easily parameterized
+	everything is represented as a 64-bit integer (written as 8 hex characters), but this could be easily parameterized
 """
 
 # add some number of edges in range [1, e] for each vertex
@@ -30,7 +30,6 @@ def generate_graph(vertices, edges):
 	return G
 
 def int_to_bytestring(n, minlen=0):
-	print("n:", n)
 	if n > 0:
 		arr = []
 		while n:
@@ -44,7 +43,7 @@ def int_to_bytestring(n, minlen=0):
 
 	if minlen > 0 and len(b) < minlen: # zero padding needed?
 		b = (minlen-len(b)) * '\x00' + b
-	return '{:08X}'.format(int(b.hex(), 16))
+	return '{:016X}'.format(int(b.hex(), 16)) # specify integer width here
 
 
 def write_gf(G):
