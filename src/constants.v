@@ -1,4 +1,4 @@
-`define READ_ADDR 32'h00
-`define READ_WORDS 32'h08
-`define READ_INFO 32'h38
-`define ROUND_DONE 32'h48
+`define READ_VADDR 32'h00
+`define READ_IEADDR 32'h01
+`define WRITE_ADDR0 32'h03
+`define DONE_ALL 32'h48

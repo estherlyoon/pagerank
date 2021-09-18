@@ -52,10 +52,11 @@ localparam RATIO = 4; // number of empty slots in in-edge
 localparam LOG_R = $clog2(RATIO);
 
 // pr states
-localparam WAIT = 0;
-localparam READ_VERT = 1;
-localparam READ_INEDGES = 2;
-localparam CONTROL = 3;
+localparam INIT = 0;
+localparam WAIT = 1;
+localparam READ_VERT = 2;
+localparam READ_INEDGES = 3;
+localparam CONTROL = 4;
 reg [7:0] pr_state = 0;
 
 // counters and parameters
@@ -85,7 +86,7 @@ always @(*) begin
   	// indicates read data and response info can be accepted
 	rready_m = 1;
 
-	vert_fifo_wrreq = rvalid_m && (rid_m == 0)
+	vert_fifo_wrreq = rvalid_m && (rid_m == 0);
 	vert_fifo_in = rdata_m[63:0]; // TODO is this correct?
 
 	/* inedge_fifo_wrreq = rvalid_m && (rid_m == 1) */
@@ -94,42 +95,49 @@ always @(*) begin
 	// TODO fields for determining stride
 	
 	case(pr_state)
+		INIT: begin
+			arid_m = 0;
+			araddr_m = 0;
+			arlen_m = 0;
+			arvalid_m = 1;
+			arsize_m = 3'b100;
+		end
 		READ_VERT: begin
 			arid_m = 0;
 			araddr_m = v_addr;
-			arlen_m = 0; // TODO ?
+			arlen_m = 0;
   			// only request reads when fifo is empty
 			arvalid_m = 1 & !vert_fifo_full;
 		end
 		READ_INEDGES: begin
 			arid_m = 1;       
 			araddr_m = ie_addr;
-			arlen_m = 0; // TODO ?
+			arlen_m = 0;
 			arvalid_m = 1; // TODO & !ie_fifo_full;
 		end
-	end
+	endcase
 end
 
 // write interface TODO
-always @(*) begin
-	awid_m = 0;
-	awaddr_m = 0;
-	awlen_m = 0;
-	awsize_m = 3'b110; // 64 bytes transferred per burst
-	awvalid_m = 0; // address is valid
+/* always @(*) begin */
+/* 	awid_m = 0; */
+/* 	awaddr_m = 0; */
+/* 	awlen_m = 0; */
+/* 	awsize_m = 3'b110; // 64 bytes transferred per burst */
+/* 	awvalid_m = 0; // address is valid */
 
-	wid_m = 0;
-	wdata_m = 0; // TODO output array
-	wstrb_m = 64'hFFFFFFFFFFFFFFFF;
-	wlast_m = 0;
-	wvalid_m = 0;
+/* 	wid_m = 0; */
+/* 	wdata_m = 0; // TODO output array */
+/* 	wstrb_m = 64'hFFFFFFFFFFFFFFFF; */
+/* 	wlast_m = 0; */
+/* 	wvalid_m = 0; */
 
-	bready_m = 1;
-end
+/* 	bready_m = 1; */
+/* end */
 
 // vector read states
 // start of vertice array
-reg [63:0] v_base_addr;                      
+reg [63:0] v_base_addr = 64'h2;
 // current address to read vertex info from
 reg [63:0] v_addr;                      
 // total number of vertices
@@ -146,13 +154,34 @@ reg [63:0] n_inedges;
 reg [63:0] ie_to_fetch;
 reg [3:0] ie_batch; // number of in-edges to fetch at "once"
 
+reg [63:0] write_addr0;
+reg [63:0] write_addr1;
+
 // id of current vertex being processed
 reg [63:0] vert_processing;
 
 // read in all vertices, all in-edges. when done with current round, repeat
 always @(posedge clk) begin
 	case(pr_state)
+		INIT: begin
+ 		   if (rvalid_m && (rid_m == 0)) begin
+				$display("fetched from %h: %h", arid_m, rdata_m);
+			    n_vertices <= rdata_m[63:0]; 
+				n_inedges <= rdata_m[127:64];
+				v_base_addr <= 2; 
+				ie_base_addr <= 2 + rdata_m[63:0] * 8;
+				pr_state <= WAIT;
+			end
+		end
 		WAIT: begin
+            $display("n_vertices: %d", n_vertices);
+            $display("n_inedges: %d", n_inedges);
+			$display("ie_base_addr: %h", ie_base_addr);
+
+			// parameters TODO timing?
+			write_addr0 <= ie_base_addr + n_inedges * 8;
+			write_addr1 <= ie_base_addr + n_inedges * 8 + n_vertices * 8;
+
 			// wait for start
 			v_addr <= v_base_addr;
 			vert_to_fetch <= n_vertices;
@@ -160,15 +189,16 @@ always @(posedge clk) begin
 			ie_to_fetch <= n_inedges;
 			ie_batch <= 4; // TODO
 
-			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `READ_PARAMS)
-				pr_state <= READ_VERT;
+			/* if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) */
+			pr_state <= READ_VERT;
 		end                
 		READ_VERT: begin
 			// read in one element from vertex array
 			if (arready_m & arvalid_m) begin
 				v_addr <= v_addr + INT_W/8;
 				vert_to_fetch <= vert_to_fetch - 1;
-				pr_state <= READ_INEDGES;
+				/* pr_state <= READ_INEDGES; */
+				pr_state <= CONTROL;
 			end  
 		end
 		READ_INEDGES: begin
@@ -182,20 +212,19 @@ always @(posedge clk) begin
 				pr_state <= CONTROL;
 		end
 		CONTROL: begin
-			else if (vert_to_fetch > 0)
+			if (vert_to_fetch > 0)
 				pr_state <= READ_VERT;
-			else if (ie_to_fetch > 0) begin
-				pr_state <= READ_INEDGES;
-			end
-			else
-				pr_state <= WAIT;
+			/* else if (ie_to_fetch > 0) begin */
+			/* 	pr_state <= READ_INEDGES; */
+			/* end */
+			/* else */
+			/* 	pr_state <= WAIT; */
 		end
 	endcase
 
 	if (softreg_req_valid & softreg_req_isWrite) begin
 		case(softreg_req_addr)
-			`READ_ADDR: base_addr <= softreg_req_data;
-			`READ_WORDS: base_words <= softreg_req_data;
+			`WRITE_ADDR0: write_addr0 <= softreg_req_data;
 		endcase
 	end
 
@@ -222,7 +251,16 @@ HullFIFO #(
 // FIFO for in-edges
 
 
+reg [7:0] count = 0;
+assign vert_fifo_rdreq = !vert_fifo_empty;
+
 // PageRank logic
+always @(posedge clk) begin
+	if (vert_fifo_rdreq) begin
+		$display("%d: %d", count, vert_fifo_out);
+		count <= count + 1;
+	end
+end
 
 // output logic
 reg sr_resp_valid;
@@ -232,7 +270,7 @@ assign softreg_resp_data = sr_resp_data;
 
 always @(posedge clk) begin 
 	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
-	if (softreg_req_valid & !softreg_req_isWrite & softreg_req_addr == `ROUND_DONE)
+	if (softreg_req_valid & !softreg_req_isWrite & softreg_req_addr == `DONE_ALL)
 		sr_resp_data <= 0; // TODO 
 end
 

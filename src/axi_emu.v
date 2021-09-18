@@ -68,6 +68,7 @@ always @(posedge clk) begin
 		case (ar_state)
 		2'h0: begin
 			if (arvalid_m) begin
+				$display("%h", mem[0]);
 				arid <= arid_m;
 				araddr <= araddr_m;
 				arlen <= arlen_m;

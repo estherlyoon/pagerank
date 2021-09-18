@@ -12,6 +12,8 @@ mem_init.hex structure:
 	everything is represented as a 64-bit integer (written as 8 hex characters), but this could be easily parameterized
 """
 
+separator = 0
+
 # add some number of edges in range [1, e] for each vertex
 # don't add any self-edges or repeat edges
 def generate_graph(vertices, edges):
@@ -45,23 +47,31 @@ def int_to_bytestring(n, minlen=0):
 		b = (minlen-len(b)) * '\x00' + b
 	return '{:016X}'.format(int(b.hex(), 16)) # specify integer width here
 
+def check_separator(f):
+	separator += 1
+	if separator % (512/8) == 0
+		f.write(" ");
 
 def write_gf(G):
 	offset = 0
 	with open('mem_init.hex', 'w') as f:
 		f.write(int_to_bytestring(G.number_of_nodes()))	
 		f.write(int_to_bytestring(G.number_of_edges()))	
+		separator += 2
 		# vertex array
 		for node in G:
 			f.write(int_to_bytestring(offset))
 			offset += len(G.in_edges(node))
+			check_separator(f)
 		# in-edge array
 		for node in G:
 			for in_edge in G.in_edges(node):
 				f.write(int_to_bytestring(in_edge[0]))
+				check_separator(f)
 		# number of out-edges array
 		for node in G:
 			f.write(int_to_bytestring(len(G.out_edges(node))))
+			check_separator(f)
 
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')

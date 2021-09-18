@@ -51,42 +51,24 @@ reg [63:0] softreg_req_data;
 wire        softreg_resp_valid;
 wire [63:0] softreg_resp_data;
 
+// TODO:
+// send n_edges, n_vertices --> from this get addresses
+// send write address for old pfxsums (need two arrays, switch between)
+
 always @(*) begin
 	case (count)
+	// send address of vertex count
+	// honestly don't think I need any of this
 	32'd3: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
-		softreg_req_addr = `READ_PARAMS; // read # vertices and edges (first two words)
-		softreg_req_data = 64'h0;
-	end
-	32'd4: begin
-		softreg_req_valid = 1;
-		softreg_req_isWrite = 1;
-		softreg_req_addr = `READ_VMAP;
-		softreg_req_data = 64'd4;
-	end
-	32'd8: begin
-		softreg_req_valid = 1;
-		softreg_req_isWrite = 1;
-		softreg_req_addr = 32'h28; // # iters TODO
-		softreg_req_data = 64'd256;
-	end
-	32'd9: begin
-		softreg_req_valid = 1;
-		softreg_req_isWrite = 1;
-		softreg_req_addr = 32'h30;  // write address TODO
-		softreg_req_data = 64'h200; // random place to write data?
-	end
-	32'd10: begin
-		softreg_req_valid = 1;
-		softreg_req_isWrite = 1;
-		softreg_req_addr = `READ_INFO; // start pfxsum 
-		softreg_req_data = 64'd4;
+		softreg_req_addr = `WRITE_ADDR0;
+		softreg_req_data = 64'd256; // TODO
 	end
 	32'd1000: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 0;
-		softreg_req_addr = `ROUND_DONE; // one round of sum done
+		softreg_req_addr = `DONE_ALL;
 		softreg_req_data = 64'h0;
 	end
 	default: begin
@@ -106,7 +88,7 @@ end
 
 // instantiations
 axi_emu #(
-	.WORDS(9)
+	.WORDS(100)
 ) ae (
 	.clk(clk),
 	.rst(rst),
