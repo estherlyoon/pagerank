@@ -10,6 +10,7 @@ import networkx as nx
 mem_init.hex structure:
 	n_vertices | n_edges | vertex map | in-edges map | # out-edges map
 	everything is represented as a 64-bit integer (written as 8 hex characters), but this could be easily parameterized
+	note: since we're not adding repeat edges, if n_edges is > n_vertices, program will hang. As long as you use fairly more vertices, should be fine, otherwise just run again.
 """
 
 separator = 0
@@ -45,14 +46,17 @@ def int_to_bytestring(n, minlen=0):
 
 	if minlen > 0 and len(b) < minlen: # zero padding needed?
 		b = (minlen-len(b)) * '\x00' + b
-	return '{:016X}'.format(int(b.hex(), 16)) # specify integer width here
+	return '{:016X}'.format(int(b.hex(), 16))
 
-def check_separator(f):
+def update_separator(f):
+	global separator
 	separator += 1
-	if separator % (512/8) == 0
-		f.write(" ");
+	if separator % 8 == 0:
+		f.write("\n")
+
 
 def write_gf(G):
+	global separator
 	offset = 0
 	with open('mem_init.hex', 'w') as f:
 		f.write(int_to_bytestring(G.number_of_nodes()))	
@@ -62,16 +66,16 @@ def write_gf(G):
 		for node in G:
 			f.write(int_to_bytestring(offset))
 			offset += len(G.in_edges(node))
-			check_separator(f)
+			update_separator(f)
 		# in-edge array
 		for node in G:
 			for in_edge in G.in_edges(node):
 				f.write(int_to_bytestring(in_edge[0]))
-				check_separator(f)
+				update_separator(f)
 		# number of out-edges array
 		for node in G:
 			f.write(int_to_bytestring(len(G.out_edges(node))))
-			check_separator(f)
+			update_separator(f)
 
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')

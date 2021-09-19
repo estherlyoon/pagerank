@@ -165,9 +165,8 @@ always @(posedge clk) begin
 	case(pr_state)
 		INIT: begin
  		   if (rvalid_m && (rid_m == 0)) begin
-				$display("fetched from %h: %h", arid_m, rdata_m);
-			    n_vertices <= rdata_m[63:0]; 
-				n_inedges <= rdata_m[127:64];
+			    n_vertices <= rdata_m[511:448]; 
+				n_inedges <= rdata_m[447:384];
 				v_base_addr <= 2; 
 				ie_base_addr <= 2 + rdata_m[63:0] * 8;
 				pr_state <= WAIT;
