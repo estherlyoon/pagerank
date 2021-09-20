@@ -58,6 +58,7 @@ localparam READ_VERT = 2;
 localparam READ_INEDGES = 3;
 localparam CONTROL = 4;
 reg [7:0] pr_state = 0;
+reg done_init = 0;
 
 // counters and parameters
 // total number of PageRank iterations to complete
@@ -86,8 +87,8 @@ always @(*) begin
   	// indicates read data and response info can be accepted
 	rready_m = 1;
 
-	vert_fifo_wrreq = rvalid_m && (rid_m == 0);
-	vert_fifo_in = rdata_m[63:0]; // TODO is this correct?
+	vert_fifo_wrreq = rvalid_m && (rid_m == 0) && done_init;
+	vert_fifo_in = rdata_m[511:448]; // TODO is this correct?
 
 	/* inedge_fifo_wrreq = rvalid_m && (rid_m == 1) */
 	/* inedge_fifo_in = rdata_m; */
@@ -100,7 +101,7 @@ always @(*) begin
 			araddr_m = 0;
 			arlen_m = 0;
 			arvalid_m = 1;
-			arsize_m = 3'b100;
+			arsize_m = 3'b100; // 16 bytes
 		end
 		READ_VERT: begin
 			arid_m = 0;
@@ -170,6 +171,7 @@ always @(posedge clk) begin
 				v_base_addr <= 2; 
 				ie_base_addr <= 2 + rdata_m[63:0] * 8;
 				pr_state <= WAIT;
+				done_init <= 1;
 			end
 		end
 		WAIT: begin
@@ -186,7 +188,7 @@ always @(posedge clk) begin
 			vert_to_fetch <= n_vertices;
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
-			ie_batch <= 4; // TODO
+			ie_batch <= 4; // TODO?
 
 			/* if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) */
 			pr_state <= READ_VERT;
@@ -194,10 +196,11 @@ always @(posedge clk) begin
 		READ_VERT: begin
 			// read in one element from vertex array
 			if (arready_m & arvalid_m) begin
+				$display("rdata all: %h", rdata_m);
 				v_addr <= v_addr + INT_W/8;
 				vert_to_fetch <= vert_to_fetch - 1;
 				/* pr_state <= READ_INEDGES; */
-				pr_state <= CONTROL;
+				pr_state <= CONTROL; // TODO remove
 			end  
 		end
 		READ_INEDGES: begin

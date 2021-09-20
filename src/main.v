@@ -1,6 +1,12 @@
 `include "src/constants.v"
 
 module main;
+
+initial
+begin
+	$dumpfile("test.vcd");
+	$dumpvars(0,main);
+end
  
 reg clk = 0;
 always #5 clk = !clk;
