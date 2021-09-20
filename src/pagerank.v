@@ -1,56 +1,5 @@
 `include "src/constants.v"
 
-// stores larger reads in a buffer, fetching segments until buffer is empty
-module ReadBuffer #(
-	parameter FULL_WIDTH = 512,
-	parameter WIDTH = 64
-) (
-	input clk,
-	input rready,
-	input [FULL_WIDTH-1:0] rdata,
-	input odata_req,
-	// if data exists in the buffer to fetch
-	output oready,
-	output [WIDTH-1:0] odata
-);
-
-localparam MAX_ELEMS = FULL_WIDTH/WIDTH;
-
-reg [WIDTH-1:0] buffer [MAX_ELEMS-1:0];
-reg [WIDTH-1:0] odata_;
-reg [7:0] buffer_elems = 0;
-reg [7:0] rdptr = 0;
-
-assign odata = odata_;
-assign oready = buffer_elems != 0;
-
-genvar i;
-generate
-for (i = 0; i < MAX_ELEMS; i = i + 1)begin
-	always @(posedge clk) begin
-		if (rready & !oready)
-			buffer[i] <= rdata[WIDTH*i-1:WIDTH*(i-1)];
-	end
-end
-endgenerate
-
-always @(posedge clk) begin
-	if (rready & !oready)
-		buffer_elems <= MAX_ELEMS;
-
-	if (oready & odata_req) begin
-		buffer_elems <= buffer_elems - 1;
-		odata_ <= buffer[rdptr];
-		rdptr <= rdptr + 1;
-		if (buffer_elems == 0) begin
-			// we can accept data again
-			rdptr <= 0;
-		end
-	end
-end
-endmodule
-
- 
 module PageRank(
 	input clk,
 	input rst,
@@ -114,6 +63,9 @@ reg done_init = 0;
 reg v_rready;
 reg [511:0] v_rdata;
 reg v_odata_req;
+reg [7:0] v_base;
+reg [7:0] v_bounds;
+wire [7:0] v_fetched = v_bounds - v_base;
 wire v_oready;
 wire [INT_W-1:0] v_odata;
 
@@ -125,6 +77,8 @@ ReadBuffer #(
 	v_rready,
 	v_rdata,
 	v_odata_req, // get data out when FIFO isn't full
+	v_base,
+	v_bounds,
 	v_oready, // fed into FIFO
 	v_odata // feed into FIFO
 );         
@@ -147,13 +101,13 @@ wire vert_fifo_empty;
 // read interface
 always @(*) begin
 	arid_m = 0;
-	araddr_m = 0; // make sure this is 64-byte aligned
-	// make sure arlen doesn't cross page boundaries
-	arlen_m = 0; // specifies # transfers per burst, use default; no savings for reading <512 bits
-	arsize_m = 3'b011; // 8 bytes transferred per burst
+  	// must be 64-byte aligned
+	araddr_m = 0;
+	// arlen must not cross page boundaries
+	arlen_m = 0;
+	arsize_m = 3'b011; // 8 bytes
 	arvalid_m = 0;
 
-  	// read data and response info can be accepted
 	rready_m = 1;
 
 	v_rready = rvalid_m && (rid_m == 0) && done_init;
@@ -178,7 +132,7 @@ always @(*) begin
 			araddr_m = v_addr;
 			arlen_m = 0;
   			// only request reads when buffer is ready to accept data
-			arvalid_m = 1 & !v_oready;
+			arvalid_m = !v_oready;
 		end
 		READ_INEDGES: begin
 			arid_m = 1;       
@@ -258,7 +212,9 @@ always @(posedge clk) begin
 			vert_to_fetch <= n_vertices;
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
-			ie_batch <= 4; // TODO?
+			ie_batch <= 4; // TODO ?
+			v_base <= 2;
+			v_bounds <= 512/INT_W;
 
 			/* if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) */
 			pr_state <= READ_VERT;
@@ -266,17 +222,19 @@ always @(posedge clk) begin
 		READ_VERT: begin
 			// read in one element from vertex array
 			if (arready_m & arvalid_m) begin
-				$display("rdata all: %h", rdata_m);
-				v_addr <= v_addr + INT_W/8;
-				vert_to_fetch <= vert_to_fetch - 1;
+				/* $display("rdata all: %h", rdata_m); */
+				v_addr <= v_addr + 64;
+				vert_to_fetch <= vert_to_fetch - v_fetched;
 				/* pr_state <= READ_INEDGES; */
 				pr_state <= CONTROL; // TODO remove
+				v_base <= 0;
+				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch : INT_W/8;
 			end  
 		end
 		READ_INEDGES: begin
 			if (arready_m & arvalid_m) begin
-				ie_addr <= ie_addr + INT_W/8;	
-				ie_to_fetch <= ie_to_fetch - 1;	
+				ie_addr <= ie_addr + 64;	
+				ie_to_fetch <= ie_to_fetch - 512/INT_W;	
 				// TODO add every time an in-edge is pulled out, subtract 1
 				ie_batch <= ie_batch - 1; // this represents fullness level of FIFO
 			end
@@ -329,7 +287,7 @@ assign vert_fifo_rdreq = !vert_fifo_empty;
 // PageRank logic
 always @(posedge clk) begin
 	if (vert_fifo_rdreq) begin
-		$display("%d: %d", count, vert_fifo_out);
+		$display("%d: %x", count, vert_fifo_out);
 		count <= count + 1;
 	end
 end
