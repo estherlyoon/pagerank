@@ -97,19 +97,6 @@ module PageRank(
 	output [63:0] softreg_resp_data
 );    
 
-ReadBuffer #(
-	.FULL_WIDTH(512),
-	.WIDTH(64)
-) v_buffer (
-	clk,
-	input rready, // from axi
-	input [FULL_WIDTH-1:0] rdata, // from axi
-	input odata_req, // from queue? if queue not full
-	output oready, // feed into queue
-	output [WIDTH-1:0] // feed into queue
-);
- 
-
 // length of integers in bits
 localparam INT_W = 64;
 localparam RATIO = 4; // number of empty slots in in-edge 
@@ -123,6 +110,25 @@ localparam READ_INEDGES = 3;
 localparam CONTROL = 4;
 reg [7:0] pr_state = 0;
 reg done_init = 0;
+ 
+reg v_rready;
+reg [511:0] v_rdata;
+reg v_odata_req;
+wire v_oready;
+wire [INT_W-1:0] v_odata;
+
+ReadBuffer #(
+	.FULL_WIDTH(512),
+	.WIDTH(INT_W)
+) v_buffer (
+	clk,
+	v_rready,
+	v_rdata,
+	v_odata_req, // get data out when FIFO isn't full
+	v_oready, // fed into FIFO
+	v_odata // feed into FIFO
+);         
+ 
 
 // counters and parameters
 // total number of PageRank iterations to complete
@@ -138,7 +144,6 @@ wire vert_fifo_rdreq;
 wire [63:0] vert_fifo_out;
 wire vert_fifo_empty;
 
-
 // read interface
 always @(*) begin
 	arid_m = 0;
@@ -148,17 +153,18 @@ always @(*) begin
 	arsize_m = 3'b011; // 8 bytes transferred per burst
 	arvalid_m = 0;
 
-  	// indicates read data and response info can be accepted
+  	// read data and response info can be accepted
 	rready_m = 1;
 
-	vert_fifo_wrreq = rvalid_m && (rid_m == 0) && done_init;
-	vert_fifo_in = rdata_m[511:448]; // TODO is this correct?
+	v_rready = rvalid_m && (rid_m == 0) && done_init;
+	v_rdata = rdata_m;
+	v_odata_req = !vert_fifo_full;
+	vert_fifo_wrreq = v_oready;
+	vert_fifo_in = v_odata;
 
 	/* inedge_fifo_wrreq = rvalid_m && (rid_m == 1) */
 	/* inedge_fifo_in = rdata_m; */
 
-	// TODO fields for determining stride
-	
 	case(pr_state)
 		INIT: begin
 			arid_m = 0;
@@ -171,8 +177,8 @@ always @(*) begin
 			arid_m = 0;
 			araddr_m = v_addr;
 			arlen_m = 0;
-  			// only request reads when fifo is empty
-			arvalid_m = 1 & !vert_fifo_full;
+  			// only request reads when buffer is ready to accept data
+			arvalid_m = 1 & !v_oready;
 		end
 		READ_INEDGES: begin
 			arid_m = 1;       
