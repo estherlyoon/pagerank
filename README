@@ -1,6 +1,6 @@
 memory layout:
 	- first integer is number of vertices in graph (V)
 	- second integer is number of edges in graph (E)
-	- vertice map, with each indice corresponding to a node and element denoting offset in in-edges graph (V length)
+	- vertex map, with each indice corresponding to a node and element denoting offset in in-edges graph (V length)
 	- edge map for in-edges per node
 	- array of length V with how many out-edges each node has

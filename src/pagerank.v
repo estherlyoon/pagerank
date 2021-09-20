@@ -1,4 +1,55 @@
 `include "src/constants.v"
+
+// stores larger reads in a buffer, fetching segments until buffer is empty
+module ReadBuffer #(
+	parameter FULL_WIDTH = 512,
+	parameter WIDTH = 64
+) (
+	input clk,
+	input rready,
+	input [FULL_WIDTH-1:0] rdata,
+	input odata_req,
+	// if data exists in the buffer to fetch
+	output oready,
+	output [WIDTH-1:0] odata
+);
+
+localparam MAX_ELEMS = FULL_WIDTH/WIDTH;
+
+reg [WIDTH-1:0] buffer [MAX_ELEMS-1:0];
+reg [WIDTH-1:0] odata_;
+reg [7:0] buffer_elems = 0;
+reg [7:0] rdptr = 0;
+
+assign odata = odata_;
+assign oready = buffer_elems != 0;
+
+genvar i;
+generate
+for (i = 0; i < MAX_ELEMS; i = i + 1)begin
+	always @(posedge clk) begin
+		if (rready & !oready)
+			buffer[i] <= rdata[WIDTH*i-1:WIDTH*(i-1)];
+	end
+end
+endgenerate
+
+always @(posedge clk) begin
+	if (rready & !oready)
+		buffer_elems <= MAX_ELEMS;
+
+	if (oready & odata_req) begin
+		buffer_elems <= buffer_elems - 1;
+		odata_ <= buffer[rdptr];
+		rdptr <= rdptr + 1;
+		if (buffer_elems == 0) begin
+			// we can accept data again
+			rdptr <= 0;
+		end
+	end
+end
+endmodule
+
  
 module PageRank(
 	input clk,
@@ -45,6 +96,19 @@ module PageRank(
 	output        softreg_resp_valid,
 	output [63:0] softreg_resp_data
 );    
+
+ReadBuffer #(
+	.FULL_WIDTH(512),
+	.WIDTH(64)
+) v_buffer (
+	clk,
+	input rready, // from axi
+	input [FULL_WIDTH-1:0] rdata, // from axi
+	input odata_req, // from queue? if queue not full
+	output oready, // feed into queue
+	output [WIDTH-1:0] // feed into queue
+);
+ 
 
 // length of integers in bits
 localparam INT_W = 64;
