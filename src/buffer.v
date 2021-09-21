@@ -41,6 +41,7 @@ always @(posedge clk) begin
 		buffer_elems <= MAX_ELEMS;
 		rdptr <= base < MAX_ELEMS ? base : 0;
 		bounds_ <= base + bounds <= MAX_ELEMS ? bounds : MAX_ELEMS;
+		$display("setting bounds to %d", base);
 	end
 
 	if (oready & odata_req) begin

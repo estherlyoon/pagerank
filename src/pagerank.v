@@ -110,7 +110,7 @@ always @(*) begin
 
 	rready_m = 1;
 
-	v_rready = rvalid_m && (rid_m == 0) && done_init;
+	v_rready = rvalid_m & (rid_m == 0) & done_init;
 	v_rdata = rdata_m;
 	v_odata_req = !vert_fifo_full;
 	vert_fifo_wrreq = v_oready;
@@ -195,7 +195,6 @@ always @(posedge clk) begin
 				v_base_addr <= 2; 
 				ie_base_addr <= 2 + rdata_m[63:0] * 8;
 				pr_state <= WAIT;
-				done_init <= 1;
 			end
 		end
 		WAIT: begin
@@ -214,21 +213,24 @@ always @(posedge clk) begin
 			ie_to_fetch <= n_inedges;
 			ie_batch <= 4; // TODO ?
 			v_base <= 2;
-			v_bounds <= 512/INT_W;
+			v_bounds <= 8;
 
 			/* if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) */
-			pr_state <= READ_VERT;
+				pr_state <= READ_VERT;
 		end                
 		READ_VERT: begin
 			// read in one element from vertex array
 			if (arready_m & arvalid_m) begin
-				/* $display("rdata all: %h", rdata_m); */
-				v_addr <= v_addr + 64;
-				vert_to_fetch <= vert_to_fetch - v_fetched;
+				// need to account for v_addr offset in the first read
+				if (v_addr == 2) v_addr <= v_addr + 62;
+				else v_addr <= v_addr + 64;
+
+				vert_to_fetch <= vert_to_fetch - v_fetched; // TODO make into wire?
 				/* pr_state <= READ_INEDGES; */
-				pr_state <= CONTROL; // TODO remove
-				v_base <= 0;
-				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch : INT_W/8;
+				pr_state <= CONTROL;
+				v_base <= v_addr == 2 ? 2 : 0;
+				// v_fetched = v_bounds - v_base ... shoudn't be dependency here
+				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch - v_fetched : 512/INT_W;
 			end  
 		end
 		READ_INEDGES: begin
@@ -238,6 +240,7 @@ always @(posedge clk) begin
 				// TODO add every time an in-edge is pulled out, subtract 1
 				ie_batch <= ie_batch - 1; // this represents fullness level of FIFO
 			end
+
 			if (ie_to_fetch == 0 | ie_batch == 0)
 				pr_state <= CONTROL;
 		end
@@ -282,12 +285,12 @@ HullFIFO #(
 
 
 reg [7:0] count = 0;
-assign vert_fifo_rdreq = !vert_fifo_empty;
+assign vert_fifo_rdreq = 1;
 
 // PageRank logic
 always @(posedge clk) begin
-	if (vert_fifo_rdreq) begin
-		$display("%d: %x", count, vert_fifo_out);
+	if (!vert_fifo_empty) begin
+		$display("%d: %04h", count, vert_fifo_out);
 		count <= count + 1;
 	end
 end
