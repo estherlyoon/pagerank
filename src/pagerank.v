@@ -52,20 +52,17 @@ localparam RATIO = 4; // number of empty slots in in-edge
 localparam LOG_R = $clog2(RATIO);
 
 // pr states
-localparam INIT = 0;
-localparam WAIT = 1;
-localparam READ_VERT = 2;
-localparam READ_INEDGES = 3;
-localparam CONTROL = 4;
+localparam WAIT = 0;
+localparam READ_VERT = 1;
+localparam READ_INEDGES = 2;
+localparam CONTROL = 3;
 reg [7:0] pr_state = 0;
-reg done_init = 0;
  
 reg v_rready;
 reg [511:0] v_rdata;
 reg v_odata_req;
 reg [7:0] v_base;
 reg [7:0] v_bounds;
-wire [7:0] v_fetched = v_bounds - v_base;
 wire v_oready;
 wire [INT_W-1:0] v_odata;
 
@@ -110,7 +107,7 @@ always @(*) begin
 
 	rready_m = 1;
 
-	v_rready = rvalid_m & (rid_m == 0) & done_init;
+	v_rready = rvalid_m & (rid_m == 0);
 	v_rdata = rdata_m;
 	v_odata_req = !vert_fifo_full;
 	vert_fifo_wrreq = v_oready;
@@ -120,13 +117,6 @@ always @(*) begin
 	/* inedge_fifo_in = rdata_m; */
 
 	case(pr_state)
-		INIT: begin
-			arid_m = 0;
-			araddr_m = 0;
-			arlen_m = 0;
-			arvalid_m = 1;
-			arsize_m = 3'b100; // 16 bytes
-		end
 		READ_VERT: begin
 			arid_m = 0;
 			araddr_m = v_addr;
@@ -188,23 +178,7 @@ reg [63:0] vert_processing;
 // read in all vertices, all in-edges. when done with current round, repeat
 always @(posedge clk) begin
 	case(pr_state)
-		INIT: begin
- 		   if (rvalid_m && (rid_m == 0)) begin
-			    n_vertices <= rdata_m[511:448]; 
-				n_inedges <= rdata_m[447:384];
-				v_base_addr <= 2; 
-				ie_base_addr <= 2 + rdata_m[63:0] * 8;
-				pr_state <= WAIT;
-			end
-		end
 		WAIT: begin
-            $display("n_vertices: %d", n_vertices);
-            $display("n_inedges: %d", n_inedges);
-			$display("ie_base_addr: %h", ie_base_addr);
-
-			// parameters TODO timing?
-			write_addr0 <= ie_base_addr + n_inedges * 8;
-			write_addr1 <= ie_base_addr + n_inedges * 8 + n_vertices * 8;
 
 			// wait for start
 			v_addr <= v_base_addr;
@@ -212,28 +186,32 @@ always @(posedge clk) begin
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
 			ie_batch <= 4; // TODO ?
-			v_base <= 2;
-			v_bounds <= 8;
+			v_base <= 0;
+			v_bounds <= 8; // TODO handle < 8 for total vertices (not super important)
 
-			/* if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) */
+			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) begin
+            	$display("n_vertices: %d", n_vertices);
+            	$display("n_inedges: %d", n_inedges);
+				$display("ie_base_addr: 0x%h", ie_base_addr);
 				pr_state <= READ_VERT;
+			end
 		end                
 		READ_VERT: begin
 			// read in one element from vertex array
 			if (arready_m & arvalid_m) begin
-				// need to account for v_addr offset in the first read
-				if (v_addr == 2) v_addr <= v_addr + 62;
-				else v_addr <= v_addr + 64;
-
-				vert_to_fetch <= vert_to_fetch - v_fetched; // TODO make into wire?
-				/* pr_state <= READ_INEDGES; */
+				v_addr <= v_addr + 64;
 				pr_state <= CONTROL;
-				v_base <= v_addr == 2 ? 2 : 0;
-				// v_fetched = v_bounds - v_base ... shoudn't be dependency here
-				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch - v_fetched : 512/INT_W;
+				v_base <= 0;
+				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch : 512/INT_W;
+
+				if (vert_to_fetch <= 512/INT_W)	vert_to_fetch <= 0;
+				else vert_to_fetch <= vert_to_fetch - 8;
 			end  
+			if (vert_to_fetch == 0)
+				pr_state <= READ_INEDGES;
 		end
 		READ_INEDGES: begin
+			$finish();
 			if (arready_m & arvalid_m) begin
 				ie_addr <= ie_addr + 64;	
 				ie_to_fetch <= ie_to_fetch - 512/INT_W;	
@@ -257,7 +235,12 @@ always @(posedge clk) begin
 
 	if (softreg_req_valid & softreg_req_isWrite) begin
 		case(softreg_req_addr)
+			`N_VERT: n_vertices <= softreg_req_data;
+			`N_INEDGES: n_inedges <= softreg_req_data;
+			`VADDR: v_base_addr <= softreg_req_data;
+			`IEADDR: ie_base_addr <= softreg_req_data;
 			`WRITE_ADDR0: write_addr0 <= softreg_req_data;
+			`WRITE_ADDR1: write_addr1 <= softreg_req_data;
 		endcase
 	end
 

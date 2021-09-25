@@ -59,9 +59,9 @@ def write_gf(G):
 	global separator
 	offset = 0
 	with open('mem_init.hex', 'w') as f:
-		f.write(int_to_bytestring(G.number_of_nodes()))	
-		f.write(int_to_bytestring(G.number_of_edges()))	
-		separator += 2
+		#f.write(int_to_bytestring(G.number_of_nodes()))	
+		#f.write(int_to_bytestring(G.number_of_edges()))	
+		#separator += 2
 		# vertex array
 		for node in G:
 			f.write(int_to_bytestring(offset))

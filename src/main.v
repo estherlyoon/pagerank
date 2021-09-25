@@ -63,13 +63,47 @@ wire [63:0] softreg_resp_data;
 
 always @(*) begin
 	case (count)
-	// send address of vertex count
-	// honestly don't think I need any of this
 	32'd3: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
+		softreg_req_addr = `N_VERT;
+		softreg_req_data = 64'd10;
+	end
+	32'd4: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `N_INEDGES;
+		softreg_req_data = 64'd58;
+	end
+	32'd5: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `VADDR;
+		softreg_req_data = 64'd0;
+	end
+	32'd6: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `IEADDR;
+		softreg_req_data = 64'd80;
+	end
+	32'd7: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd256; // TODO
+		softreg_req_data = 64'd1240; // idk
+	end
+	32'd8: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `WRITE_ADDR1;
+		softreg_req_data = 64'd1360; // idk
+	end
+	32'd9: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `DONE_READ_PARAMS;
+		softreg_req_data = 64'd0;
 	end
 	32'd1000: begin
 		softreg_req_valid = 1;
