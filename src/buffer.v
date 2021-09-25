@@ -22,7 +22,7 @@ reg [WIDTH-1:0] odata_;
 reg [7:0] buffer_elems = 0;
 reg [7:0] rdptr;
 
-assign odata = odata_;
+assign odata = buffer[rdptr];
 assign oready = buffer_elems != 0;
 
 genvar i;
@@ -37,13 +37,12 @@ endgenerate
 
 always @(posedge clk) begin
 	if (rready & !oready) begin
-		buffer_elems <= base + bounds < MAX_ELEMS ? bounds - base : MAX_ELEMS;
+		buffer_elems <= bounds - base < MAX_ELEMS ? bounds - base : MAX_ELEMS;
 		rdptr <= base < MAX_ELEMS ? base : 0;
 	end
 
 	if (oready & odata_req) begin
 		buffer_elems <= buffer_elems - 1;
-		odata_ <= buffer[rdptr];
 		rdptr <= rdptr + 1;
 	end
 end

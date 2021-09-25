@@ -79,6 +79,28 @@ ReadBuffer #(
 	v_oready, // fed into FIFO
 	v_odata // feed into FIFO
 );         
+
+reg ie_rready;
+reg [511:0] ie_rdata;
+reg ie_odata_req;
+reg [7:0] ie_base;
+reg [7:0] ie_bounds;
+wire ie_oready;
+wire [INT_W-1:0] ie_odata;
+
+ReadBuffer #(
+	.FULL_WIDTH(512),
+	.WIDTH(INT_W)
+) ie_buffer (
+	clk,
+	ie_rready,
+	ie_rdata,
+	ie_odata_req,
+	ie_base,
+	ie_bounds,
+	ie_oready,
+	ie_odata
+);         
  
 
 // counters and parameters
@@ -94,7 +116,15 @@ wire vert_fifo_full;
 wire vert_fifo_rdreq;
 wire [63:0] vert_fifo_out;
 wire vert_fifo_empty;
-
+ 
+// in-edge vertices FIFO signals
+reg inedge_fifo_wrreq;
+reg [63:0] inedge_fifo_in;
+wire inedge_fifo_full;
+wire inedge_fifo_rdreq;
+wire [63:0] inedge_fifo_out;
+wire inedge_fifo_empty;
+ 
 // read interface
 always @(*) begin
 	arid_m = 0;
@@ -112,10 +142,13 @@ always @(*) begin
 	v_odata_req = !vert_fifo_full;
 	vert_fifo_wrreq = v_oready;
 	vert_fifo_in = v_odata;
-
-	/* inedge_fifo_wrreq = rvalid_m && (rid_m == 1) */
-	/* inedge_fifo_in = rdata_m; */
-
+     
+	ie_rready = rvalid_m & (rid_m == 1);
+	ie_rdata = rdata_m;
+	ie_odata_req = !inedge_fifo_full;
+	inedge_fifo_wrreq = ie_oready;
+	inedge_fifo_in = ie_odata;
+     
 	case(pr_state)
 		READ_VERT: begin
 			arid_m = 0;
@@ -128,7 +161,7 @@ always @(*) begin
 			arid_m = 1;       
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			arvalid_m = 1; // TODO & !ie_fifo_full;
+			arvalid_m = !ie_oready;
 		end
 	endcase
 end
@@ -150,14 +183,13 @@ end
 /* 	bready_m = 1; */
 /* end */
 
-// vector read states
 // start of vertice array
 reg [63:0] v_base_addr = 64'h2;
 // current address to read vertex info from
 reg [63:0] v_addr;                      
 // total number of vertices
 reg [63:0] n_vertices;
-// id of current vertex being fetched
+// how many vertices left to fetch
 reg [63:0] vert_to_fetch;
 // start of in-edge array
 reg [63:0] ie_base_addr;                      
@@ -165,10 +197,9 @@ reg [63:0] ie_base_addr;
 reg [63:0] ie_addr;                      
 // total number of edges
 reg [63:0] n_inedges;
-// id of current edge being fetched
+// how many ie left to fetch
 reg [63:0] ie_to_fetch;
-reg [3:0] ie_batch; // number of in-edges to fetch at "once"
-
+reg [3:0] ie_batch; // number of iterations of fetching per inedge stage
 reg [63:0] write_addr0;
 reg [63:0] write_addr1;
 
@@ -188,48 +219,57 @@ always @(posedge clk) begin
 			ie_batch <= 4; // TODO ?
 			v_base <= 0;
 			v_bounds <= 8; // TODO handle < 8 for total vertices (not super important)
+			ie_base <= ie_base_addr[5:3];
+			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
 			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) begin
             	$display("n_vertices: %d", n_vertices);
             	$display("n_inedges: %d", n_inedges);
 				$display("ie_base_addr: 0x%h", ie_base_addr);
+				$display("ie_base: 0x%h", ie_base);
+				$display("ie_bounds: 0x%h", ie_bounds);
 				pr_state <= READ_VERT;
 			end
 		end                
 		READ_VERT: begin
-			// read in one element from vertex array
+			// read in up to 8 vertices in one read
 			if (arready_m & arvalid_m) begin
 				v_addr <= v_addr + 64;
-				pr_state <= CONTROL;
 				v_base <= 0;
 				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch : 512/INT_W;
 
 				if (vert_to_fetch <= 512/INT_W)	vert_to_fetch <= 0;
-				else vert_to_fetch <= vert_to_fetch - 8;
+				else vert_to_fetch <= vert_to_fetch - 512/INT_W;
+
+				pr_state <= READ_INEDGES; // TODO scheme
 			end  
-			if (vert_to_fetch == 0)
-				pr_state <= READ_INEDGES;
+			/* if (vert_to_fetch == 0) */
+			/* 	pr_state <= READ_INEDGES; */
 		end
 		READ_INEDGES: begin
-			$finish();
 			if (arready_m & arvalid_m) begin
-				ie_addr <= ie_addr + 64;	
-				ie_to_fetch <= ie_to_fetch - 512/INT_W;	
-				// TODO add every time an in-edge is pulled out, subtract 1
+				ie_addr <= ie_addr[5:3] == 0 ? ie_addr + 64 : ie_addr + 64 - ie_addr[5:3] * 512/INT_W;	
+				ie_base <= ie_addr[5:3];
+				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
+				$display("setting ie_addr to %h", ie_addr[5:3] == 0 ? ie_addr + 64 : ie_addr + 64 - ie_addr[5:3] * 512/INT_W);
+
+                if (ie_to_fetch <= 512/INT_W) ie_to_fetch <= 0;
+				else ie_to_fetch <= ie_to_fetch - 512/INT_W + ie_addr[5:3];
+
 				ie_batch <= ie_batch - 1; // this represents fullness level of FIFO
 			end
 
-			if (ie_to_fetch == 0 | ie_batch == 0)
+			if (ie_to_fetch == 0 | ie_batch == 0) begin
 				pr_state <= CONTROL;
+			end
 		end
 		CONTROL: begin
 			if (vert_to_fetch > 0)
 				pr_state <= READ_VERT;
-			/* else if (ie_to_fetch > 0) begin */
-			/* 	pr_state <= READ_INEDGES; */
-			/* end */
-			/* else */
-			/* 	pr_state <= WAIT; */
+			else if (ie_to_fetch > 0)
+				pr_state <= READ_INEDGES;
+			else
+				pr_state <= WAIT;
 		end
 	endcase
 
@@ -265,16 +305,36 @@ HullFIFO #(
 );
 
 // FIFO for in-edges
+HullFIFO #(
+	.TYPE(0),
+	.WIDTH(64), // maybe? id + offset = 2 * 64
+	.LOG_DEPTH(4) // buffer 16 vertices at once
+) inedge_fifo (
+	.clock(clk),
+	.reset_n(~rst),
+	.wrreq(inedge_fifo_wrreq),
+	.data(inedge_fifo_in),
+	.full(inedge_fifo_full),
+	.rdreq(inedge_fifo_rdreq),
+	.q(inedge_fifo_out),
+	.empty(inedge_fifo_empty)
+);
+ 
 
-
-reg [7:0] count = 0;
+reg [7:0] vcount = 0;
 assign vert_fifo_rdreq = 1;
+reg [7:0] iecount = 0;
+assign inedge_fifo_rdreq = 1;
 
 // PageRank logic
 always @(posedge clk) begin
 	if (!vert_fifo_empty) begin
-		$display("%d: %04h", count, vert_fifo_out);
-		count <= count + 1;
+		$display("vertex %d: %04h", vcount, vert_fifo_out);
+		vcount <= vcount + 1;
+	end
+	if (!inedge_fifo_empty) begin
+		$display("inedge %d: %4h", iecount, inedge_fifo_out);
+		iecount <= iecount + 1;
 	end
 end
 

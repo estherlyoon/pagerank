@@ -85,7 +85,7 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `IEADDR;
-		softreg_req_data = 64'd80;
+		softreg_req_data = 64'd80; // byte-addressable memory, 10v*8bytes
 	end
 	32'd7: begin
 		softreg_req_valid = 1;
@@ -105,7 +105,7 @@ always @(*) begin
 		softreg_req_addr = `DONE_READ_PARAMS;
 		softreg_req_data = 64'd0;
 	end
-	32'd1000: begin
+	32'd2000: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 0;
 		softreg_req_addr = `DONE_ALL;
