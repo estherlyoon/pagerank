@@ -73,7 +73,7 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_INEDGES;
-		softreg_req_data = 64'd58;
+		softreg_req_data = 64'd47;
 	end
 	32'd5: begin
 		softreg_req_valid = 1;
@@ -85,7 +85,7 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `IEADDR;
-		softreg_req_data = 64'd80; // byte-addressable memory, 10v*8bytes
+		softreg_req_data = 64'd160; // byte-addressable memory, 10(v+nout edges)*8bytes
 	end
 	32'd7: begin
 		softreg_req_valid = 1;

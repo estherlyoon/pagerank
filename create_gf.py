@@ -58,24 +58,26 @@ def update_separator(f):
 def write_gf(G):
 	global separator
 	offset = 0
-	with open('mem_init.hex', 'w') as f:
-		#f.write(int_to_bytestring(G.number_of_nodes()))	
-		#f.write(int_to_bytestring(G.number_of_edges()))	
-		#separator += 2
+	with open('test.hex', 'w') as f:
 		# vertex array
 		for node in G:
-			f.write(int_to_bytestring(offset))
-			offset += len(G.in_edges(node))
+			# write offset for in-edge array
+			#f.write(int_to_bytestring(offset))
+			#offset += len(G.in_edges(node))
+			f.write(int_to_bytestring(len(G.in_edges(node)))) # CHANGE: write how many in-edges a node has
+			update_separator(f)
+			# write number of out-edges this vertex has
+			f.write(int_to_bytestring(len(G.out_edges(node))))
 			update_separator(f)
 		# in-edge array
 		for node in G:
 			for in_edge in G.in_edges(node):
 				f.write(int_to_bytestring(in_edge[0]))
 				update_separator(f)
-		# number of out-edges array
-		for node in G:
-			f.write(int_to_bytestring(len(G.out_edges(node))))
-			update_separator(f)
+		# 0-pad the rest
+		while separator % 8 != 0:
+			f.write(int_to_bytestring(0));
+			separator += 1
 
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')

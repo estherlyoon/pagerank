@@ -64,11 +64,11 @@ reg v_odata_req;
 reg [7:0] v_base;
 reg [7:0] v_bounds;
 wire v_oready;
-wire [INT_W-1:0] v_odata;
+wire [INT_W*2-1:0] v_odata;
 
 ReadBuffer #(
 	.FULL_WIDTH(512),
-	.WIDTH(INT_W)
+	.WIDTH(INT_W*2)
 ) v_buffer (
 	clk,
 	v_rready,
@@ -111,10 +111,10 @@ reg [63:0] rounds_completed;
 
 // vertex FIFO signals
 reg vert_fifo_wrreq;
-reg [63:0] vert_fifo_in;
+reg [127:0] vert_fifo_in;
 wire vert_fifo_full;
 wire vert_fifo_rdreq;
-wire [63:0] vert_fifo_out;
+wire [127:0] vert_fifo_out;
 wire vert_fifo_empty;
  
 // in-edge vertices FIFO signals
@@ -210,36 +210,32 @@ reg [63:0] vert_processing;
 always @(posedge clk) begin
 	case(pr_state)
 		WAIT: begin
-
 			// wait for start
 			v_addr <= v_base_addr;
 			vert_to_fetch <= n_vertices;
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
-			ie_batch <= 4; // TODO ?
+			ie_batch <= 4;
 			v_base <= 0;
-			v_bounds <= 8; // TODO handle < 8 for total vertices (not super important)
+			v_bounds <= 8; // TODO handle < 4 for total vertices (not super important)
 			ie_base <= ie_base_addr[5:3];
 			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
 			if (softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS) begin
             	$display("n_vertices: %d", n_vertices);
             	$display("n_inedges: %d", n_inedges);
-				$display("ie_base_addr: 0x%h", ie_base_addr);
-				$display("ie_base: 0x%h", ie_base);
-				$display("ie_bounds: 0x%h", ie_bounds);
 				pr_state <= READ_VERT;
 			end
 		end                
 		READ_VERT: begin
-			// read in up to 8 vertices in one read
+			// read in up to 4 vertices+n_out_edge pairs in one read
 			if (arready_m & arvalid_m) begin
 				v_addr <= v_addr + 64;
 				v_base <= 0;
-				v_bounds <= vert_to_fetch < 512/INT_W ? vert_to_fetch : 512/INT_W;
+				v_bounds <= vert_to_fetch < 512/(INT_W*2) ? vert_to_fetch : 512/(INT_W*2);
 
-				if (vert_to_fetch <= 512/INT_W)	vert_to_fetch <= 0;
-				else vert_to_fetch <= vert_to_fetch - 512/INT_W;
+				if (vert_to_fetch <= 512/(INT_W*2))	vert_to_fetch <= 0;
+				else vert_to_fetch <= vert_to_fetch - 512/(INT_W*2);
 
 				pr_state <= READ_INEDGES; // TODO scheme
 			end  
@@ -251,7 +247,6 @@ always @(posedge clk) begin
 				ie_addr <= ie_addr[5:3] == 0 ? ie_addr + 64 : ie_addr + 64 - ie_addr[5:3] * 512/INT_W;	
 				ie_base <= ie_addr[5:3];
 				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
-				$display("setting ie_addr to %h", ie_addr[5:3] == 0 ? ie_addr + 64 : ie_addr + 64 - ie_addr[5:3] * 512/INT_W);
 
                 if (ie_to_fetch <= 512/INT_W) ie_to_fetch <= 0;
 				else ie_to_fetch <= ie_to_fetch - 512/INT_W + ie_addr[5:3];
@@ -288,10 +283,10 @@ always @(posedge clk) begin
 		pr_state <= WAIT;
 end
 
-// FIFO for vertex + offset
+// FIFO for vertex in-edges offset + # out-edges stored as a pair
 HullFIFO #(
 	.TYPE(0),
-	.WIDTH(64), // maybe? id + offset = 2 * 64
+	.WIDTH(128),
 	.LOG_DEPTH(4) // buffer 16 vertices at once
 ) vertex_fifo (
 	.clock(clk),
@@ -321,20 +316,52 @@ HullFIFO #(
 );
  
 
+// TODO problem: how to get #in-edges
+	// 1: subtract next offset from yours-- where to do this?
+		// ask joshua
+	// 2: do it during graph pre-processing
+reg v_ready = 1;
+reg ie_ready = 1;
 reg [7:0] vcount = 0;
-assign vert_fifo_rdreq = 1;
-reg [7:0] iecount = 0;
-assign inedge_fifo_rdreq = 1;
+reg [INT_W*2-1:0] v_outedges;
+reg [INT_W-1:0] n_ie_left;
+reg [INT_W-1:0] ie_curr;
+reg [INT_W-1:0] pagerank = 0;
+
+assign vert_fifo_rdreq = v_ready;
+assign inedge_fifo_rdreq = ie_ready;
 
 // PageRank logic
 always @(posedge clk) begin
-	if (!vert_fifo_empty) begin
-		$display("vertex %d: %04h", vcount, vert_fifo_out);
-		vcount <= vcount + 1;
+	// read in next vertex
+	if (!vert_fifo_empty & v_ready) begin
+		v_ready <= 0;
+		v_outedges <= vert_fifo_out[INT_W-1:0];
+		n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W];
 	end
-	if (!inedge_fifo_empty) begin
-		$display("inedge %d: %4h", iecount, inedge_fifo_out);
-		iecount <= iecount + 1;
+		// TODO
+		ie_ready <= 1;
+ 
+	// read in next inedge
+	if (!inedge_fifo_ready & ie_ready) begin
+		ie_ready <= 0;
+		ie_curr <= inedge_fifo_out;
+	end 
+
+	if (awvalid_m & awready_m) begin
+	end
+
+	if (wvalid_m & wready_m) begin
+	end
+        // fetch PR of current inedge
+		// add it to sum
+		// when done, n_ie_left-- and ie_ready <= 1
+
+	// done with sum, divide it byu # outedges, writeback data, reset pagerank afterwards
+	if (n_ie_left == 0) begin
+		$display("pagerank for vertex %d is %d", vcount, pagerank / voutedges);
+		vready <= 1;
+		vcount <= vcount + 1;
 	end
 end
 
