@@ -29,8 +29,10 @@ genvar i;
 generate
 for (i = 1; i <= MAX_ELEMS; i = i + 1)begin
 	always @(posedge clk) begin
-		if (rready & !oready)
+		if (rready & !oready) begin
+			/* $display("buffer[%d] = %h", MAX_ELEMS-i, rdata[WIDTH*i-1:WIDTH(i-1)]); */
 			buffer[MAX_ELEMS-i] <= rdata[WIDTH*i-1:WIDTH*(i-1)];
+		end
 	end
 end
 endgenerate
