@@ -91,15 +91,21 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd1240; // idk
+		softreg_req_data = 64'd640; // idk
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd1360; // idk
+		softreg_req_data = 64'd768; // idk
 	end
 	32'd9: begin
+		softreg_req_valid = 1;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `N_ROUNDS;
+		softreg_req_data = 64'd4;
+	end
+	32'd10: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `DONE_READ_PARAMS;
