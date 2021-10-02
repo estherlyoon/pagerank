@@ -50,6 +50,7 @@ module PageRank(
 localparam INT_W = 64;
 localparam RATIO = 4; // number of empty slots in in-edge 
 localparam LOG_R = $clog2(RATIO);
+localparam BYTE = 8;
 
 // pr states
 localparam WAIT = 0;
@@ -181,21 +182,32 @@ always @(*) begin
 	endcase
 end
 
+reg [63:0]  pr_strobe;
+genvar g;
+generate
+for (g = 1; g <= BYTE; g = g + 1) begin
+	always @(*) begin
+		pr_strobe[BYTE*g-1:BYTE*(g-1)] = pr_waddr[5:3] == BYTE-g ? 8'hFF : 8'h00;
+		wdata_m[INT_W*g-1:INT_W*(g-1)] = pr_waddr[5:3] == BYTE-g ? pagerank : 0;
+	end
+end
+endgenerate
+
 // write interface
 always @(*) begin
 	awid_m = 0;
 	awaddr_m = pr_waddr;
 	awlen_m = 0;
 	awsize_m = 3'b011; // 8 bytes
-	awvalid_m = 1; // ?
+	awvalid_m = pr_awvalid; // ?
 
 	wid_m = 0;
-	wdata_m = pagerank;
-	wstrb_m = 64'hFFFFFFFFFFFFFFFF;
+	wstrb_m = pr_strobe;
 	wlast_m = 1;
 	wvalid_m = pr_wvalid;
 
 	bready_m = 1;
+
 end
 
 // start of vertex array
@@ -221,7 +233,6 @@ reg [INT_W-1:0] init_val;
 
 reg [63:0] base_pr_raddr;
 reg [63:0] base_pr_waddr;
-reg [63:0] pr_addr;
 
 // TODO problem: how to prioritize certain reads over others
 	// in each stage, if a pagerank request is pending, read that?
@@ -379,6 +390,7 @@ AddrParser #(
 reg v_ready = 1;
 reg ie_ready = 1;
 reg pr_wvalid = 0;
+reg pr_awvalid = 0;
 reg [INT_W-1:0] v_count = 0;
 reg [INT_W*2-1:0] v_outedges;
 reg [INT_W-1:0] n_ie_left;
@@ -396,11 +408,12 @@ always @(posedge clk) begin
 		v_ready <= 0;
 		v_outedges <= vert_fifo_out[INT_W-1:0];
 		n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W];
+		pagerank <= 0;
 	end
  
 	// read next in-edge vertex
 	if (!inedge_fifo_empty & inedge_fifo_rdreq) begin
-		$display("IE -- %h", inedge_fifo_out);
+		/* $display("IE -- %h", inedge_fifo_out); */
 		ie_ready <= 0;
 		ie_curr <= inedge_fifo_out;
 	end 
@@ -418,28 +431,30 @@ always @(posedge clk) begin
 
 		n_ie_left <= n_ie_left - 1;
 
+		// TODO move?
+		pr_waddr <= base_pr_waddr + (v_count << 3); // multiply by INT_W/8
+		pr_awvalid <= 1;
+
+		if (n_ie_left == 1)
+			$display("set pr_waddr to %h", base_pr_waddr + v_count << 3);
+
 		if (n_ie_left > 1)
 			ie_ready <= 1;
 		else begin
 			// done with sum, divide it by # outedges, writeback data, reset pagerank afterwards
 			// TODO put these things in a divider, might need to save vertex id for writeback
 			$display("\tpagerank for vertex %d is %d/%d = %d", v_count, pagerank, v_outedges, pagerank / v_outedges);
+			pr_awvalid <= 0;
 			pr_wvalid <= 1;
 		end
 	end
 
-	if (awvalid_m & awready_m) begin
-		pr_waddr <= base_pr_waddr + (v_count << 3); // multiply by INT_W/8
-		$display("setting pr_waddr to %h", base_pr_waddr + v_count * INT_W/8);
-	end
-
 	if (wvalid_m & wready_m) begin
-		$display("----------------WRITING----------------");
+		$display("----------------WRITING %h ----------------", pr_waddr, pagerank);
+		pr_wvalid <= 0;
 		ie_ready <= 1;
 		v_ready <= 1;
 		v_count <= v_count + 1;
-		pagerank <= 0;
-		pr_wvalid <= 0;
 	end
 
 	if (v_count == n_vertices) begin
