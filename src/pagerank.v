@@ -378,6 +378,7 @@ AddrParser #(
 	.FULL_WIDTH(512),
 	.WIDTH(64)
 ) parser (
+	pr_rready,
 	pr_raddr[5:3],
 	pr_rdata,
 	pr_odata
@@ -389,6 +390,7 @@ AddrParser #(
 	// 2: do it during graph pre-processing
 reg v_ready = 1;
 reg ie_ready = 1;
+reg ie_readstate = 0;
 reg pr_wvalid = 0;
 reg pr_awvalid = 0;
 reg [INT_W-1:0] v_count = 0;
@@ -414,18 +416,21 @@ always @(posedge clk) begin
 	// read next in-edge vertex
 	if (!inedge_fifo_empty & inedge_fifo_rdreq) begin
 		/* $display("IE -- %h", inedge_fifo_out); */
-		ie_ready <= 0;
+		ie_ready <= 0; // ready to process another in-edge vertex
+		// TODO put a state here for reading PR, ie_ready is too overloaded
+		// current problem: arvalid set bc !ie_ready, reading garbage 
+		// before base_addr is updated in new round
 		ie_curr <= inedge_fifo_out;
 	end 
 
     // fetch PR of current in-edge vertex, add it to running sum
 	if (!ie_ready & pr_rready) begin
 		if (round == 1) begin
-			$display("setting init_val to %d", init_val);
+			$display("setting init_val of %d to %d", ie_curr, init_val);
 			pagerank <= pagerank + init_val;
 		end
 		else begin
-			$display("\tpr_odata = %h", pr_odata);
+			$display("\tpr_odata for %d = %h", ie_curr, pr_odata);
 			pagerank <= pagerank + pr_odata; // TODO get specific index to read from
 		end
 
@@ -435,8 +440,8 @@ always @(posedge clk) begin
 		pr_waddr <= base_pr_waddr + (v_count << 3); // multiply by INT_W/8
 		pr_awvalid <= 1;
 
-		if (n_ie_left == 1)
-			$display("set pr_waddr to %h", base_pr_waddr + v_count << 3);
+		/* if (n_ie_left == 1) */
+		/* 	$display("set pr_waddr to %h", base_pr_waddr + v_count << 3); */
 
 		if (n_ie_left > 1)
 			ie_ready <= 1;
@@ -450,7 +455,7 @@ always @(posedge clk) begin
 	end
 
 	if (wvalid_m & wready_m) begin
-		$display("----------------WRITING %h ----------------", pr_waddr, pagerank);
+		$display("----------------WRITING %h ----------------", pr_waddr);
 		pr_wvalid <= 0;
 		ie_ready <= 1;
 		v_ready <= 1;

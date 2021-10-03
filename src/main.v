@@ -103,7 +103,7 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_ROUNDS;
-		softreg_req_data = 64'd1;
+		softreg_req_data = 64'd2;
 	end
 	32'd10: begin
 		softreg_req_valid = 1;
