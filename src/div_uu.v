@@ -57,7 +57,7 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf);
 	//
 	// parameters
 	//
-	parameter z_width = 16;
+	parameter z_width = 64;
 	parameter d_width = z_width /2;
 	
 	//

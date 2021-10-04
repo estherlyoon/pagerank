@@ -11,8 +11,9 @@ module AddrParser #(
 );
 
 always @(*) begin
-	if (ready) 
+	if (ready) begin
 		out = in[WIDTH*idx+:WIDTH];
+	end
 end
 
 endmodule
