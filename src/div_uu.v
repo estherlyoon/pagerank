@@ -52,7 +52,7 @@
 //
 //
 
-module div_uu(clk, ena, z, d, q, s, div0, ovf);
+module div_uu(clk, ena, z, d, q, s, div0, ovf, oready);
 
 	//
 	// parameters
@@ -72,10 +72,12 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf);
 	output [d_width -1:0] s; // remainder
 	output div0;
 	output ovf;
+	output oready;
 	reg [d_width-1:0] q;
 	reg [d_width-1:0] s;
 	reg div0;
 	reg ovf;
+	reg oready;
 
 	//	
 	// functions
@@ -186,9 +188,14 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf);
 	  if(ena)
 	    div0 <= div0_pipe[d_width];
 
-	always @(posedge clk)
-	  if(ena)
+	always @(posedge clk) begin
+	  // TODO this isn't correct
+	  if(ena) begin
+		oready <= 1;
 	    q <= gen_q(q_pipe[d_width-1], s_pipe[d_width]);
+	  end else
+	  	oready <= 0;
+	end
 
 	always @(posedge clk)
 	  if(ena)

@@ -44,13 +44,16 @@ module PageRank(
 	
 	output        softreg_resp_valid,
 	output [63:0] softreg_resp_data
-);    
+);
 
 // length of integers in bits
 localparam INT_W = 64;
-localparam RATIO = 4; // number of empty slots in in-edge 
+// number of empty slots in in-edge 
+localparam RATIO = 4;
 localparam LOG_R = $clog2(RATIO);
 localparam BYTE = 8;
+// precision of fixed-point values
+localparam PREC = 16; 
 
 // pr states
 localparam WAIT = 0;
@@ -65,8 +68,28 @@ reg [7:0] pr_state = 0;
 localparam L_VERT = 0;
 localparam L_IE_VERT = 1;
 localparam L_IE_PR = 2;
+localparam L_WRITE = 3;
 reg [7:0] logic_state = 0;
- 
+
+// divider
+reg [INT_W-1:0] dividend;
+reg [INT_W/2-1:0] divisor;
+wire [INT_W/2-1:0] quotient;
+wire [INT_W/2-1:0] remainder;
+wire div0, ovf, dvalid;
+
+div_uu #(INT_W) div (
+	.clk(clk),
+	.ena(1'b1),
+	.z(dividend),
+	.d(divisor),
+	.q(quotient),
+	.s(remainder),
+	.div0(div0), // division by zero
+	.ovf(ovf), // overflow
+	.oready(dvalid) // result ready
+);
+
 reg v_rready;
 reg [511:0] v_rdata;
 reg v_odata_req;
@@ -87,7 +110,7 @@ ReadBuffer #(
 	v_bounds,
 	v_oready, // fed into FIFO
 	v_odata // feed into FIFO
-);         
+);
 
 reg ie_rready;
 reg [511:0] ie_rdata;
@@ -109,7 +132,7 @@ ReadBuffer #(
 	ie_bounds,
 	ie_oready,
 	ie_odata
-);         
+);
 
 reg pr_rready;
 reg [511:0] pr_rdata;
@@ -142,7 +165,7 @@ wire inedge_fifo_empty;
 // read interface
 always @(*) begin
 	arid_m = 0;
-  	// must be 64-byte aligned
+	// must be 64-byte aligned
 	araddr_m = 0;
 	// arlen must not cross page boundaries
 	arlen_m = 0;
@@ -156,7 +179,7 @@ always @(*) begin
 	v_odata_req = !vert_fifo_full;
 	vert_fifo_wrreq = v_oready;
 	vert_fifo_in = v_odata;
-     
+
 	ie_rready = rvalid_m & (rid_m == 1);
 	ie_rdata = rdata_m;
 	ie_odata_req = !inedge_fifo_full;
@@ -165,17 +188,17 @@ always @(*) begin
 
 	pr_rready = rvalid_m & (rid_m == 2);
 	pr_rdata = rdata_m;
-     
+
 	case(pr_state)
 		READ_VERT: begin
 			arid_m = 0;
 			araddr_m = v_addr;
 			arlen_m = 0;
-  			// only request reads when buffer is ready to accept data
+			// only request reads when buffer is ready to accept data
 			arvalid_m = !v_oready;
 		end
 		READ_INEDGES: begin
-			arid_m = 1;       
+			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
 			arvalid_m = !ie_oready;
@@ -220,15 +243,15 @@ end
 // start of vertex array
 reg [63:0] v_base_addr;
 // current address to read vertex info from
-reg [63:0] v_addr;                      
+reg [63:0] v_addr;
 // total number of vertices
 reg [63:0] n_vertices;
 // how many vertices left to fetch
 reg [63:0] vert_to_fetch;
 // start of in-edge array
-reg [63:0] ie_base_addr;                      
+reg [63:0] ie_base_addr;
 // current address to read in-edge # from
-reg [63:0] ie_addr;                      
+reg [63:0] ie_addr;
 // total number of edges
 reg [63:0] n_inedges;
 // how many ie left to fetch
@@ -241,18 +264,15 @@ reg [INT_W-1:0] init_val;
 reg [63:0] base_pr_raddr;
 reg [63:0] base_pr_waddr;
 
-// TODO problem: how to prioritize certain reads over others
-	// in each stage, if a pagerank request is pending, read that?
-
 // read in all vertices, all in-edges. when done with current round, repeat
 always @(posedge clk) begin
 	case(pr_state)
-		// wait for start
+		// wait for start of each round
 		WAIT: begin
 			v_addr <= v_base_addr;
 			vert_to_fetch <= n_vertices;
 			v_base <= 0;
-			v_bounds <= 8; // TODO handle < 4 for total vertices (not super important)
+			v_bounds <= 8; // TODO handle < 4 for total vertices (not critical)
 
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
@@ -264,25 +284,38 @@ always @(posedge clk) begin
 
 			if (round == 0 & softreg_req_valid & softreg_req_isWrite) begin
 				if (softreg_req_addr == `DONE_READ_PARAMS) begin
-            		$display("n_vertices: %d", n_vertices);
-            		$display("n_inedges: %d", n_inedges);
-            		$display("total_rounds: %d", total_rounds);
-            		$display("pr_raddr: %x", base_pr_raddr);
-            		$display("pr_waddr: %x", base_pr_waddr);
+					$display("n_vertices: %d", n_vertices);
+					$display("n_inedges: %d", n_inedges);
+					$display("total_rounds: %d", total_rounds);
+					$display("pr_raddr: %x", base_pr_raddr);
+					$display("pr_waddr: %x", base_pr_waddr);
+					$display("dividend %b, divisor %b", 1 << (PREC*2), n_vertices << PREC);
 
-					// store 1/n_vertices; very first round, get this value, divide by n_out, then get pr
-					init_val <= 1; // / n_vertices; TODO divider
+					// compute the initial PR value
+					dividend <= 1 << PREC;
+					divisor <= n_vertices;
 					round <= 1;
-					pr_state <= READ_VERT;
 				end
 			end
 			else if (round > 0) begin
 				if (round == total_rounds) $finish();
-				else pr_state <= READ_VERT;
-				round <= round + 1;
-				$display("\n*** Starting Round: %d with addr %x ***\n", round, base_pr_waddr);
+				else if (round == 1) begin
+					// wait for division to finish TODO valid bit
+					if (quotient) begin
+						init_val <= quotient;
+						pr_state <= READ_VERT;
+						round <= round + 1;
+						$display("\n*** Round 1: quotient is %b, remainder %b ***\n", 
+										quotient, remainder);
+					end
+				end
+				else begin
+					pr_state <= READ_VERT;
+					round <= round + 1;
+					$display("\n\n*** Starting Round: %0d ***\n", round);
+				end
 			end
-		end                
+		end
 		READ_VERT: begin
 			// read in up to 4 vertices+n_out_edge pairs in one read
 			if (arready_m & arvalid_m) begin
@@ -293,11 +326,9 @@ always @(posedge clk) begin
 				if (vert_to_fetch <= 512/(INT_W*2))	vert_to_fetch <= 0;
 				else vert_to_fetch <= vert_to_fetch - 512/(INT_W*2);
 
-				pr_state <= READ_INEDGES; // TODO scheme
+				pr_state <= READ_INEDGES;
 			end  
 
-            /* if (wait_priority) */
-				/* pr_state <= WAIT; */
 			else if (vert_to_fetch == 0 | vert_fifo_full)
 				pr_state <= READ_INEDGES;
 		end
@@ -307,14 +338,12 @@ always @(posedge clk) begin
 				ie_base <= ie_addr[5:3];
 				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
-                if (ie_to_fetch <= 512/INT_W) ie_to_fetch <= 0;
+				if (ie_to_fetch <= 512/INT_W) ie_to_fetch <= 0;
 				else ie_to_fetch <= ie_to_fetch - 512/INT_W + ie_addr[5:3];
 
 				ie_batch <= ie_batch - 1;
 			end
 
-            /* if (wait_priority) */
-				/* pr_state <= WAIT; */
 			else if (inedge_fifo_full)
 				pr_state <= READ_PR;
 			else if (ie_to_fetch == 0 | ie_batch == 0)
@@ -325,7 +354,7 @@ always @(posedge clk) begin
 				pr_state <= CONTROL;
 			end
 
-            if (wait_priority)
+			if (wait_priority) // check in other stages?
 				pr_state <= WAIT;
 			else if (vert_fifo_empty)
 				pr_state <= READ_VERT;
@@ -350,7 +379,7 @@ always @(posedge clk) begin
 			`IEADDR: ie_base_addr <= softreg_req_data;
 			`WRITE_ADDR0: base_pr_raddr <= softreg_req_data;
 			`WRITE_ADDR1: base_pr_waddr <= softreg_req_data;
-			`N_ROUNDS: total_rounds <= softreg_req_data;
+			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init
 		endcase
 	end
 
@@ -377,7 +406,7 @@ HullFIFO #(
 // FIFO for in-edges
 HullFIFO #(
 	.TYPE(0),
-	.WIDTH(64), // maybe? id + offset = 2 * 64
+	.WIDTH(64),
 	.LOG_DEPTH(4) // buffer 16 vertices at once
 ) inedge_fifo (
 	.clock(clk),
@@ -400,39 +429,14 @@ AddrParser #(
 	pr_odata
 );
 
-wire [INT_W-1:0] dividend;
-wire [INT_W/2-1:0] divisor;
-wire [INT_W/2-1:0] remainder;
-wire [INT_W/2-1:0] quotient;
-wire div0, ovf;
-
-div_uu #(INT_W) div (
-	.clk(clk),
-	.ena(1'b1),
-	.z(dividend),
-	.d(divisor),
-	.q(quotient),
-	.s(remainder),
-	.div0(div0), // division by zero
-	.ovf(ovf) // overflow
-);
-
-always @(posedge clk) begin
-	/* if (pr_rready) */
-	/* 	$display("setting out, in is %h", pr_rdata); */
-end
- 
-// TODO problem: how to get #in-edges
-	// 1: subtract next offset from yours-- where to do this?
-		// ask joshua
-	// 2: do it during graph pre-processing
 reg pr_wvalid = 0;
 reg pr_awvalid = 0;
 reg [INT_W-1:0] v_count = 0;
 reg [INT_W*2-1:0] v_outedges;
 reg [INT_W-1:0] n_ie_left;
 reg [INT_W-1:0] ie_curr;
-reg [INT_W-1:0] pagerank = 0;
+reg [INT_W-1:0] pr_sum = 0;
+reg [INT_W-1:0] pagerank;
 
 assign vert_fifo_rdreq = logic_state == L_VERT;
 assign inedge_fifo_rdreq = logic_state == L_IE_VERT;
@@ -443,73 +447,79 @@ always @(posedge clk) begin
 	case(logic_state)
 		// read next vertex
 		L_VERT: begin
-			/* $display("in l_vert"); */
 			if (!vert_fifo_empty) begin
-				$display("VERTEX (%d, %d)", vert_fifo_out[INT_W*2-1:INT_W], vert_fifo_out[INT_W-1:0]);
+				$display("VERTEX (%0d, %0d)", vert_fifo_out[INT_W*2-1:INT_W], vert_fifo_out[INT_W-1:0]);
 				v_outedges <= vert_fifo_out[INT_W-1:0];
 				n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W];
-				pagerank <= 0;
+				pr_sum <= 0;
 				logic_state <= L_IE_VERT;
 			end
 		end
 		// read next in-edge vertex
 		L_IE_VERT: begin
-			/* $display("in l_ie_vert"); */
-			if (!inedge_fifo_empty) begin // TODO needed?
-				$display("IE -- %h", inedge_fifo_out);
+			if (!inedge_fifo_empty) begin
+				$display("\tIE -- %h", inedge_fifo_out);
 				ie_curr <= inedge_fifo_out;
-				pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3); // multiply by 8
+				pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
 				logic_state <= L_IE_PR;
 			end 
 		end
 		// fetch PR of current in-edge vertex, add it to running sum
 		L_IE_PR: begin
-			if (pr_rready) begin
-				/* $display("in l_ie_pr"); */
-				if (round == 1) begin
-					$display("setting init_val of %d to %d", ie_curr, init_val);
-					pagerank <= pagerank + init_val;
-				end
-				else begin
-					$display("\tpr_odata for %d = %h", ie_curr, pr_odata);
-					pagerank <= pagerank + pr_odata; // TODO get specific index to read from
-				end
+			if (round == 2) begin
+				$display("\tsetting init_val of %0d to %0d", ie_curr, init_val);
+				pr_sum <= pr_sum + init_val;
+			end
+			else if (pr_rready) begin
+				$display("\tpr_odata for %0d = %h", ie_curr, pr_odata);
+				pr_sum <= pr_sum + pr_odata;
+			end
 
+			if (round == 2 | pr_rready) begin
 				n_ie_left <= n_ie_left - 1;
-
-				// TODO move?
-				pr_waddr <= base_pr_waddr + (v_count << 3); // multiply by INT_W/8
-				pr_awvalid <= 1;
-
 				if (n_ie_left > 1)
 					logic_state <= L_IE_VERT;
-				else begin
-					// done with sum, divide it by # outedges, writeback data, reset pagerank afterwards
-					// TODO put these things in a divider, might need to save vertex id for writeback
-					$display("\tpagerank for vertex %d is %d/%d = %d", v_count, pagerank, v_outedges, pagerank / v_outedges);
-					pr_awvalid <= 0;
-					pr_wvalid <= 1;
-				end
+			end
+
+			// move this logic?
+			pr_waddr <= base_pr_waddr + (v_count << 3);
+			pr_awvalid <= 1;
+
+			if (n_ie_left <= 1) begin
+				divisor <= pr_sum;
+				dividend <= v_outedges;
+
+				pr_awvalid <= 0;
+				pr_wvalid <= 1;
+
+				// TODO valid bit for quotient
+				pagerank <= quotient;
+				logic_state <= L_WRITE;
+
+				$display("quotient: %b", quotient);
+				$display("pagerank for vertex %0d is %0d/%0d = %0d",
+						v_count, pr_sum, v_outedges, pr_sum / v_outedges);
+			end
+		end
+		L_WRITE: begin
+			if (wvalid_m & wready_m) begin
+				$display("---------------- WRITING %b to 0x%0h ----------------", pagerank, pr_waddr);
+				pr_wvalid <= 0;
+				v_count <= v_count + 1;
+				logic_state <= L_VERT;
 			end
 		end
 	endcase
 
-	if (wvalid_m & wready_m) begin
-		$display("----------------WRITING %h ----------------", pr_waddr);
-		pr_wvalid <= 0;
-		v_count <= v_count + 1;
-		logic_state <= L_VERT;
-	end
 
 	if (v_count == n_vertices) begin
-		$display("*** Done performing round %d of PR ***", round);
+		$display("*** Done with round %0d of PR ***", round-1);
 		base_pr_waddr <= base_pr_raddr;
 		base_pr_raddr <= base_pr_waddr;
 		v_count <= 0;
 		wait_priority <= 1;
 		logic_state <= L_VERT; // TODO race condition with L_IE_PR logic set
 	end
-
 end
 
 // output logic
