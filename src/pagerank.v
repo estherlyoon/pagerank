@@ -486,14 +486,14 @@ always @(posedge clk) begin
 				if (!dset) begin
 					din <= 1;
 					dset <= 1;
-                end
+				end
 				else din <= 0;
 
 				if (dout) begin
 					pagerank <= quotient;
 					pr_awvalid <= 0;
 					pr_wvalid <= 1;
-			   		logic_state <= L_WRITE;
+					logic_state <= L_WRITE;
 					/* $display("quotient: %b", quotient); */
 					/* $display("pagerank for vertex %0d is %0d/%0d = %0d", */
 						/* v_count, pr_sum, v_outedges, pr_sum / v_outedges); */
@@ -501,7 +501,7 @@ always @(posedge clk) begin
 			end
 			else if (round == 2 | pr_rready) begin
 				// fetch PR of current in-edge vertex, add it to running sum
- 				if (round == 2) begin
+				if (round == 2) begin
 					$display("\tsetting init_val of %0d to %0d", ie_curr, init_val);
 					pr_sum <= pr_sum + init_val;
 				end
@@ -509,7 +509,7 @@ always @(posedge clk) begin
 					$display("\tpr_odata for %0d = %h", ie_curr, pr_odata);
 					pr_sum <= pr_sum + pr_odata;
 				end
-            
+
 				// ready to read in next ie vertex
 				n_ie_left <= n_ie_left - 1;
 				if (n_ie_left > 1)
