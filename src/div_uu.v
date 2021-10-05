@@ -52,7 +52,7 @@
 //
 //
 
-module div_uu(clk, ena, z, d, q, s, div0, ovf, oready);
+module div_uu(clk, ena, iready, z, d, q, s, div0, ovf, oready);
 
 	//
 	// parameters
@@ -70,6 +70,7 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf, oready);
 	input  [d_width -1:0] d; // divisor
 	output [d_width -1:0] q; // quotient
 	output [d_width -1:0] s; // remainder
+	input iready;
 	output div0;
 	output ovf;
 	output oready;
@@ -121,6 +122,7 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf, oready);
 	reg [d_width-1:0] q_pipe  [d_width-1:0];
 	reg [z_width:0] s_pipe  [d_width:0];
 	reg [z_width:0] d_pipe  [d_width:0];
+	reg v_pipe [d_width:0];
 
 	reg [d_width:0] div0_pipe, ovf_pipe;
 	//
@@ -134,7 +136,17 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf, oready);
 	end
 	// synopsys translate_on
 
-	integer n0, n1, n2, n3;
+	integer v0, n0, n1, n2, n3;
+
+	// generate valid bits
+	always @(posedge clk)
+		if (ena)
+			v_pipe[0] <= iready;
+
+	always @(posedge clk)
+		if (ena)
+			for(v0=1; v0 < d_width; v0=v0+1) // < or <=?
+				v_pipe[v0] <= v_pipe[v0-1];
 
 	// generate divisor (d) pipe
 	always @(d)
@@ -189,12 +201,10 @@ module div_uu(clk, ena, z, d, q, s, div0, ovf, oready);
 	    div0 <= div0_pipe[d_width];
 
 	always @(posedge clk) begin
-	  // TODO this isn't correct
 	  if(ena) begin
-		oready <= 1;
+		oready <= v_pipe[d_width-1];
 	    q <= gen_q(q_pipe[d_width-1], s_pipe[d_width]);
-	  end else
-	  	oready <= 0;
+	  end
 	end
 
 	always @(posedge clk)

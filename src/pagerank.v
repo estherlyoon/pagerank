@@ -72,22 +72,25 @@ localparam L_WRITE = 3;
 reg [7:0] logic_state = 0;
 
 // divider
+reg din = 0;
+reg dset = 0;
 reg [INT_W-1:0] dividend;
 reg [INT_W/2-1:0] divisor;
 wire [INT_W/2-1:0] quotient;
 wire [INT_W/2-1:0] remainder;
-wire div0, ovf, dvalid;
+wire div0, ovf, dout;
 
 div_uu #(INT_W) div (
 	.clk(clk),
 	.ena(1'b1),
+	.iready(din),
 	.z(dividend),
 	.d(divisor),
 	.q(quotient),
 	.s(remainder),
 	.div0(div0), // division by zero
 	.ovf(ovf), // overflow
-	.oready(dvalid) // result ready
+	.oready(dout) // result ready
 );
 
 reg v_rready;
@@ -229,7 +232,7 @@ always @(*) begin
 	awaddr_m = pr_waddr;
 	awlen_m = 0;
 	awsize_m = 3'b011; // 8 bytes
-	awvalid_m = pr_awvalid; // ?
+	awvalid_m = pr_awvalid;
 
 	wid_m = 0;
 	wstrb_m = pr_strobe;
@@ -237,7 +240,6 @@ always @(*) begin
 	wvalid_m = pr_wvalid;
 
 	bready_m = 1;
-
 end
 
 // start of vertex array
@@ -264,7 +266,10 @@ reg [INT_W-1:0] init_val;
 reg [63:0] base_pr_raddr;
 reg [63:0] base_pr_waddr;
 
-// read in all vertices, all in-edges. when done with current round, repeat
+/* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
+/* currently round-robin between read types, but if streaming buffers are full,
+/* will keep performing random reads
+ */
 always @(posedge clk) begin
 	case(pr_state)
 		// wait for start of each round
@@ -284,31 +289,36 @@ always @(posedge clk) begin
 
 			if (round == 0 & softreg_req_valid & softreg_req_isWrite) begin
 				if (softreg_req_addr == `DONE_READ_PARAMS) begin
-					$display("n_vertices: %d", n_vertices);
-					$display("n_inedges: %d", n_inedges);
-					$display("total_rounds: %d", total_rounds);
-					$display("pr_raddr: %x", base_pr_raddr);
-					$display("pr_waddr: %x", base_pr_waddr);
-					$display("dividend %b, divisor %b", 1 << (PREC*2), n_vertices << PREC);
+					// for debugging
+					$display("n_vertices: %0d", n_vertices);
+					$display("n_inedges: %0d", n_inedges);
+					$display("total_rounds: %0d", total_rounds);
+					$display("pr_raddr: 0x%x", base_pr_raddr);
+					$display("pr_waddr: 0x%x", base_pr_waddr);
+					$display("dividend = %b, divisor = %b", 1 << (PREC*2), n_vertices << PREC);
 
 					// compute the initial PR value
 					dividend <= 1 << PREC;
 					divisor <= n_vertices;
+					din <= 1;
 					round <= 1;
 				end
 			end
 			else if (round > 0) begin
 				if (round == total_rounds) $finish();
+				// first round
 				else if (round == 1) begin
-					// wait for division to finish TODO valid bit
-					if (quotient) begin
+					din <= 0;
+					// wait for division to complete
+					if (dout) begin
 						init_val <= quotient;
 						pr_state <= READ_VERT;
 						round <= round + 1;
 						$display("\n*** Round 1: quotient is %b, remainder %b ***\n", 
-										quotient, remainder);
+												quotient, remainder);
 					end
 				end
+				// all other rounds
 				else begin
 					pr_state <= READ_VERT;
 					round <= round + 1;
@@ -317,7 +327,7 @@ always @(posedge clk) begin
 			end
 		end
 		READ_VERT: begin
-			// read in up to 4 vertices+n_out_edge pairs in one read
+			// read in up to 4 (n_in_edge,n_out_edge) pairs in one read
 			if (arready_m & arvalid_m) begin
 				v_addr <= v_addr + 64;
 				v_base <= 0;
@@ -328,13 +338,12 @@ always @(posedge clk) begin
 
 				pr_state <= READ_INEDGES;
 			end  
-
 			else if (vert_to_fetch == 0 | vert_fifo_full)
 				pr_state <= READ_INEDGES;
 		end
 		READ_INEDGES: begin
 			if (arready_m & arvalid_m) begin
-				ie_addr <= ie_addr[5:3] == 0 ? ie_addr + 64 : ie_addr + 64 - (ie_addr[5:3] << 3); // * 512/INT_W;	
+				ie_addr <= ie_addr[5:3] == 0 ? ie_addr+64 : ie_addr+64-(ie_addr[5:3] << 3); // * 512/INT_W;	
 				ie_base <= ie_addr[5:3];
 				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
@@ -379,7 +388,7 @@ always @(posedge clk) begin
 			`IEADDR: ie_base_addr <= softreg_req_data;
 			`WRITE_ADDR0: base_pr_raddr <= softreg_req_data;
 			`WRITE_ADDR1: base_pr_waddr <= softreg_req_data;
-			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init
+			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init stage
 		endcase
 	end
 
@@ -407,7 +416,8 @@ HullFIFO #(
 HullFIFO #(
 	.TYPE(0),
 	.WIDTH(64),
-	.LOG_DEPTH(4) // buffer 16 vertices at once
+ 	// buffer 16 vertices at once
+	.LOG_DEPTH(4)
 ) inedge_fifo (
 	.clock(clk),
 	.reset_n(~rst),
@@ -458,47 +468,52 @@ always @(posedge clk) begin
 		// read next in-edge vertex
 		L_IE_VERT: begin
 			if (!inedge_fifo_empty) begin
-				$display("\tIE -- %h", inedge_fifo_out);
+				$display("\tIE -- %0d", inedge_fifo_out);
 				ie_curr <= inedge_fifo_out;
 				pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
 				logic_state <= L_IE_PR;
 			end 
 		end
-		// fetch PR of current in-edge vertex, add it to running sum
 		L_IE_PR: begin
-			if (round == 2) begin
-				$display("\tsetting init_val of %0d to %0d", ie_curr, init_val);
-				pr_sum <= pr_sum + init_val;
-			end
-			else if (pr_rready) begin
-				$display("\tpr_odata for %0d = %h", ie_curr, pr_odata);
-				pr_sum <= pr_sum + pr_odata;
-			end
-
-			if (round == 2 | pr_rready) begin
-				n_ie_left <= n_ie_left - 1;
-				if (n_ie_left > 1)
-					logic_state <= L_IE_VERT;
-			end
-
-			// move this logic?
 			pr_waddr <= base_pr_waddr + (v_count << 3);
 			pr_awvalid <= 1;
 
+			// perform division of PR sum by # outedges
 			if (n_ie_left <= 1) begin
-				divisor <= pr_sum;
-				dividend <= v_outedges;
+				divisor <= v_outedges;
+				dividend <= pr_sum;
 
-				pr_awvalid <= 0;
-				pr_wvalid <= 1;
+				if (!dset) begin
+					din <= 1;
+					dset <= 1;
+                end
+				else din <= 0;
 
-				// TODO valid bit for quotient
-				pagerank <= quotient;
-				logic_state <= L_WRITE;
-
-				$display("quotient: %b", quotient);
-				$display("pagerank for vertex %0d is %0d/%0d = %0d",
-						v_count, pr_sum, v_outedges, pr_sum / v_outedges);
+				if (dout) begin
+					pagerank <= quotient;
+					pr_awvalid <= 0;
+					pr_wvalid <= 1;
+			   		logic_state <= L_WRITE;
+					/* $display("quotient: %b", quotient); */
+					/* $display("pagerank for vertex %0d is %0d/%0d = %0d", */
+						/* v_count, pr_sum, v_outedges, pr_sum / v_outedges); */
+				end
+			end
+			else if (round == 2 | pr_rready) begin
+				// fetch PR of current in-edge vertex, add it to running sum
+ 				if (round == 2) begin
+					$display("\tsetting init_val of %0d to %0d", ie_curr, init_val);
+					pr_sum <= pr_sum + init_val;
+				end
+				else if (pr_rready) begin
+					$display("\tpr_odata for %0d = %h", ie_curr, pr_odata);
+					pr_sum <= pr_sum + pr_odata;
+				end
+            
+				// ready to read in next ie vertex
+				n_ie_left <= n_ie_left - 1;
+				if (n_ie_left > 1)
+					logic_state <= L_IE_VERT;
 			end
 		end
 		L_WRITE: begin
@@ -507,10 +522,10 @@ always @(posedge clk) begin
 				pr_wvalid <= 0;
 				v_count <= v_count + 1;
 				logic_state <= L_VERT;
+				dset <= 0;
 			end
 		end
 	endcase
-
 
 	if (v_count == n_vertices) begin
 		$display("*** Done with round %0d of PR ***", round-1);
@@ -518,7 +533,7 @@ always @(posedge clk) begin
 		base_pr_raddr <= base_pr_waddr;
 		v_count <= 0;
 		wait_priority <= 1;
-		logic_state <= L_VERT; // TODO race condition with L_IE_PR logic set
+		logic_state <= L_VERT; // TODO race condition with L_IE_PR logic set?
 	end
 end
 

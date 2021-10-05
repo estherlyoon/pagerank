@@ -1,6 +1,9 @@
 memory layout:
-	- first integer is number of vertices in graph (V)
-	- second integer is number of edges in graph (E)
-	- vertex map, with each indice corresponding to a node and element denoting offset in in-edges graph (V length)
-	- edge map for in-edges per node
-	- array of length V with how many out-edges each node has
+        - words are 8 bytes wide
+        - first array is of length N_VERTICES
+            - per 2-word entry:
+                - first integer is number of in-edges vertex has
+                - second integer is number of out-edges vertex has
+        - second array stores in-edge vertex IDs (IEV) for each vertex in first array
+            - one word per IEV
+            - e.g., will store [v0's IEVs | v1's IEVs ... | v(n-1)'s IEV]
