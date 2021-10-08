@@ -57,10 +57,6 @@ reg [63:0] softreg_req_data;
 wire        softreg_resp_valid;
 wire [63:0] softreg_resp_data;
 
-// TODO:
-// send n_edges, n_vertices --> from this get addresses
-// send write address for old pfxsums (need two arrays, switch between)
-
 always @(*) begin
 	case (count)
 	32'd3: begin
@@ -91,13 +87,13 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd640; // idk
+		softreg_req_data = 64'd640;
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd768; // idk
+		softreg_req_data = 64'd768;
 	end
 	32'd9: begin
 		softreg_req_valid = 1;
@@ -127,7 +123,7 @@ always @(*) begin
 end
 always @(posedge clk) begin
 	if (softreg_resp_valid) begin
-		$display("total sum: %d", softreg_resp_data);
+		/* $display("total sum: %d", softreg_resp_data); */
 		$finish(0);
 	end
 end

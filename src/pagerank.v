@@ -48,9 +48,6 @@ module PageRank(
 
 // length of integers in bits
 localparam INT_W = 64;
-// number of empty slots in in-edge 
-localparam RATIO = 4;
-localparam LOG_R = $clog2(RATIO);
 localparam BYTE = 8;
 // precision of fixed-point values
 localparam PREC = 16; 
@@ -458,7 +455,7 @@ always @(posedge clk) begin
 		// read next vertex
 		L_VERT: begin
 			if (!vert_fifo_empty) begin
-				$display("VERTEX (%0d, %0d)", vert_fifo_out[INT_W*2-1:INT_W], vert_fifo_out[INT_W-1:0]);
+				/* $display("VERTEX (%0d, %0d)", vert_fifo_out[INT_W*2-1:INT_W], vert_fifo_out[INT_W-1:0]); */
 				v_outedges <= vert_fifo_out[INT_W-1:0];
 				n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W];
 				pr_sum <= 0;
