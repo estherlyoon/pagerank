@@ -69,7 +69,9 @@ localparam L_WRITE = 3;
 reg [7:0] logic_state = 0;
 
 // divider
+reg init_din = 0;
 reg din = 0;
+wire dvalid = init_din | din;
 reg dset = 0;
 reg [INT_W-1:0] dividend;
 reg [INT_W/2-1:0] divisor;
@@ -80,7 +82,7 @@ wire div0, ovf, dout;
 div_uu #(INT_W) div (
 	.clk(clk),
 	.ena(1'b1),
-	.iready(din),
+	.iready(dvalid),
 	.z(dividend),
 	.d(divisor),
 	.q(quotient),
@@ -140,7 +142,6 @@ wire [63:0] pr_odata;
 reg [63:0] pr_raddr;
 reg [63:0] pr_waddr;
 
-// counters and parameters
 // total number of PageRank iterations to complete
 reg [63:0] total_rounds;
 // number of iterations completed so far
@@ -161,7 +162,41 @@ wire inedge_fifo_full;
 wire inedge_fifo_rdreq;
 wire [63:0] inedge_fifo_out;
 wire inedge_fifo_empty;
- 
+
+// start of vertex array
+reg [63:0] v_base_addr;
+// current address to read vertex info from
+reg [63:0] v_addr;
+// total number of vertices
+reg [63:0] n_vertices;
+// how many vertices left to fetch
+reg [63:0] vert_to_fetch;
+// start of in-edge array
+reg [63:0] ie_base_addr;
+// current address to read in-edge # from
+reg [63:0] ie_addr;
+// total number of edges
+reg [63:0] n_inedges;
+// how many ie left to fetch
+reg [63:0] ie_to_fetch;
+// number of iterations of fetching per inedge stage
+reg [3:0] ie_batch;
+// the initial pagerank score, equal for all vertices
+reg [INT_W-1:0] init_val;
+
+reg [63:0] base_pr_raddr;
+reg [63:0] base_pr_waddr;
+
+// PageRank logic control signals
+reg pr_wvalid = 0;
+reg pr_awvalid = 0;
+reg [INT_W-1:0] v_count = 0;
+reg [INT_W*2-1:0] v_outedges;
+reg [INT_W-1:0] n_ie_left;
+reg [INT_W-1:0] ie_curr;
+reg [INT_W-1:0] pr_sum = 0;
+reg [INT_W-1:0] pagerank;
+   
 // read interface
 always @(*) begin
 	arid_m = 0;
@@ -212,6 +247,7 @@ always @(*) begin
 	endcase
 end
 
+// determine which part of line to write back
 reg [63:0]  pr_strobe;
 genvar g;
 generate
@@ -238,30 +274,6 @@ always @(*) begin
 
 	bready_m = 1;
 end
-
-// start of vertex array
-reg [63:0] v_base_addr;
-// current address to read vertex info from
-reg [63:0] v_addr;
-// total number of vertices
-reg [63:0] n_vertices;
-// how many vertices left to fetch
-reg [63:0] vert_to_fetch;
-// start of in-edge array
-reg [63:0] ie_base_addr;
-// current address to read in-edge # from
-reg [63:0] ie_addr;
-// total number of edges
-reg [63:0] n_inedges;
-// how many ie left to fetch
-reg [63:0] ie_to_fetch;
-// number of iterations of fetching per inedge stage
-reg [3:0] ie_batch;
-// the initial pagerank score, equal for all vertices
-reg [INT_W-1:0] init_val;
-
-reg [63:0] base_pr_raddr;
-reg [63:0] base_pr_waddr;
 
 /* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
 /* currently round-robin between read types, but if streaming buffers are full,
@@ -294,10 +306,7 @@ always @(posedge clk) begin
 					$display("pr_waddr: 0x%x", base_pr_waddr);
 					$display("dividend = %b, divisor = %b", 1 << (PREC*2), n_vertices << PREC);
 
-					// compute the initial PR value
-					dividend <= 1 << PREC;
-					divisor <= n_vertices;
-					din <= 1;
+					init_din <= 1;
 					round <= 1;
 				end
 			end
@@ -305,8 +314,8 @@ always @(posedge clk) begin
 				if (round == total_rounds) $finish();
 				// first round
 				else if (round == 1) begin
-					din <= 0;
-					// wait for division to complete
+					init_din <= 0;
+					// wait for initial division to complete
 					if (dout) begin
 						init_val <= quotient;
 						pr_state <= READ_VERT;
@@ -349,7 +358,6 @@ always @(posedge clk) begin
 
 				ie_batch <= ie_batch - 1;
 			end
-
 			else if (inedge_fifo_full)
 				pr_state <= READ_PR;
 			else if (ie_to_fetch == 0 | ie_batch == 0)
@@ -377,17 +385,9 @@ always @(posedge clk) begin
 		end
 	endcase
 
-	if (softreg_req_valid & softreg_req_isWrite) begin
-		case(softreg_req_addr)
-			`N_VERT: n_vertices <= softreg_req_data;
-			`N_INEDGES: n_inedges <= softreg_req_data;
-			`VADDR: v_base_addr <= softreg_req_data;
-			`IEADDR: ie_base_addr <= softreg_req_data;
-			`WRITE_ADDR0: base_pr_raddr <= softreg_req_data;
-			`WRITE_ADDR1: base_pr_waddr <= softreg_req_data;
-			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init stage
-		endcase
-	end
+	// finished a round, go back to wait
+	if (v_count == n_vertices)
+		wait_priority <= 1;
 
 	if (rst)
 		pr_state <= WAIT;
@@ -435,15 +435,6 @@ AddrParser #(
 	pr_rdata,
 	pr_odata
 );
-
-reg pr_wvalid = 0;
-reg pr_awvalid = 0;
-reg [INT_W-1:0] v_count = 0;
-reg [INT_W*2-1:0] v_outedges;
-reg [INT_W-1:0] n_ie_left;
-reg [INT_W-1:0] ie_curr;
-reg [INT_W-1:0] pr_sum = 0;
-reg [INT_W-1:0] pagerank;
 
 assign vert_fifo_rdreq = logic_state == L_VERT;
 assign inedge_fifo_rdreq = logic_state == L_IE_VERT;
@@ -529,8 +520,27 @@ always @(posedge clk) begin
 		base_pr_waddr <= base_pr_raddr;
 		base_pr_raddr <= base_pr_waddr;
 		v_count <= 0;
-		wait_priority <= 1;
 		logic_state <= L_VERT; // TODO race condition with L_IE_PR logic set?
+	end
+
+	// inputs for computing the initial PR value
+	if (round == 0 & softreg_req_valid & softreg_req_isWrite) begin
+		if (softreg_req_addr == `DONE_READ_PARAMS) begin
+			dividend <= 1 << PREC;
+			divisor <= n_vertices;
+		end
+	end
+ 
+	if (softreg_req_valid & softreg_req_isWrite) begin
+		case(softreg_req_addr)
+			`N_VERT: n_vertices <= softreg_req_data;
+			`N_INEDGES: n_inedges <= softreg_req_data;
+			`VADDR: v_base_addr <= softreg_req_data;
+			`IEADDR: ie_base_addr <= softreg_req_data;
+			`WRITE_ADDR0: base_pr_raddr <= softreg_req_data;
+			`WRITE_ADDR1: base_pr_waddr <= softreg_req_data;
+			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init stage
+		endcase
 	end
 end
 
