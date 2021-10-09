@@ -58,26 +58,42 @@ def update_separator(f):
 def write_gf(G):
 	global separator
 	offset = 0
+	total_inedges = 0
 	with open('test.hex', 'w') as f:
 		# vertex array
 		for node in G:
 			# write offset for in-edge array
-			#f.write(int_to_bytestring(offset))
-			#offset += len(G.in_edges(node))
-			f.write(int_to_bytestring(len(G.in_edges(node)))) # CHANGE: write how many in-edges a node has
+			f.write(int_to_bytestring(len(G.in_edges(node))))
 			update_separator(f)
 			# write number of out-edges this vertex has
 			f.write(int_to_bytestring(len(G.out_edges(node))))
 			update_separator(f)
 		# in-edge array
 		for node in G:
+			random_edges = []
 			for in_edge in G.in_edges(node):
-				f.write(int_to_bytestring(in_edge[0]))
+				random_edges.append(in_edge[0])
+			random.shuffle(random_edges)
+			for in_edge in random_edges:
+				f.write(int_to_bytestring(in_edge))
 				update_separator(f)
+			total_inedges += len(random_edges)
 		# 0-pad the rest
 		while separator % 8 != 0:
 			f.write(int_to_bytestring(0));
 			separator += 1
+	
+	print("--- parameters (in decimal) ---")
+	print("N_VERT:", G.number_of_nodes())
+	print("N_INEDGES:", total_inedges)
+	print("--- potential address parameters ---")
+	print("VADDR:", str(0))
+	# 8 bytes * 2 * N_VERT
+	ieaddr = 16 * G.number_of_nodes()
+	print("IEADDR:", str(ieaddr))
+	wa0 = ieaddr + 8 * total_inedges
+	print("WRITE_ADDR0:", str(wa0))
+	print("WRITE_ADDR1:", str(wa0 + 8 * G.number_of_nodes()))
 
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')
