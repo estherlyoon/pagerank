@@ -143,9 +143,11 @@ reg [63:0] pr_raddr;
 reg [63:0] pr_waddr;
 
 // total number of PageRank iterations to complete
-reg [63:0] total_rounds;
+reg [31:0] total_rounds;
 // number of iterations completed so far
-reg [63:0] round = 0;
+reg [31:0] round = 0;
+// total runs of PageRank (do total_rounds per run)
+reg [31:0] total_runs = 1;
 
 // vertex FIFO signals
 reg vert_fifo_wrreq;
@@ -308,10 +310,14 @@ always @(posedge clk) begin
 
 					init_din <= 1;
 					round <= 1;
+					total_runs <= total_runs - 1;
 				end
 			end
 			else if (round > 0) begin
-				if (round == total_rounds) $finish();
+				if (round == total_rounds) begin
+                	if (total_runs == 0) $finish();
+					else total_runs <= total_runs - 1;
+				end
 				// first round
 				else if (round == 1) begin
 					init_din <= 0;
@@ -320,8 +326,8 @@ always @(posedge clk) begin
 						init_val <= quotient;
 						pr_state <= READ_VERT;
 						round <= round + 1;
-						$display("\n*** Round 1: quotient is %b, remainder %b ***\n", 
-												quotient, remainder);
+						/* $display("\n*** Round 1: quotient is %b, remainder %b ***\n", */ 
+												/* quotient, remainder); */
 					end
 				end
 				// all other rounds
@@ -439,6 +445,10 @@ AddrParser #(
 assign vert_fifo_rdreq = logic_state == L_VERT;
 assign inedge_fifo_rdreq = logic_state == L_IE_VERT;
 
+reg [31:0] edge_cnt = 0;
+reg [31:0] edge_fetched = 0;
+reg [31:0] edge_to_fetch = 0;
+
 // PageRank logic
 always @(posedge clk) begin
 
@@ -446,20 +456,35 @@ always @(posedge clk) begin
 		// read next vertex
 		L_VERT: begin
 			if (!vert_fifo_empty) begin
-				/* $display("VERTEX (%0d, %0d)", vert_fifo_out[INT_W*2-1:INT_W], vert_fifo_out[INT_W-1:0]); */
+				$display("VERTEX %0d (%0d, %0d)", v_count, 
+						vert_fifo_out[INT_W*2-1:INT_W], 
+						vert_fifo_out[INT_W-1:0]);
 				v_outedges <= vert_fifo_out[INT_W-1:0];
 				n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W];
 				pr_sum <= 0;
-				logic_state <= L_IE_VERT;
+
+				// handle vertex with zero in-edges
+				if (vert_fifo_out[INT_W*2-1:INT_W] == 0)
+					logic_state <= L_IE_PR;
+				else
+					logic_state <= L_IE_VERT;
+
+				edge_fetched <= 0;
+				edge_to_fetch <= vert_fifo_out[INT_W*2-1:INT_W];
 			end
 		end
 		// read next in-edge vertex
 		L_IE_VERT: begin
+			/* $display("L_IE_VERT, empty = %0d, vertex = %0d, left = %0d", 
+								inedge_fifo_empty, v_count, n_ie_left); */
 			if (!inedge_fifo_empty) begin
-				$display("\tIE -- %0d", inedge_fifo_out);
+				/* $display("\tIE -- %0d", inedge_fifo_out); */
 				ie_curr <= inedge_fifo_out;
 				pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
 				logic_state <= L_IE_PR;
+
+				edge_cnt <= edge_cnt + 1;
+				edge_fetched <= edge_fetched + 1;
 			end 
 		end
 		L_IE_PR: begin
@@ -490,33 +515,40 @@ always @(posedge clk) begin
 			else if (round == 2 | pr_rready) begin
 				// fetch PR of current in-edge vertex, add it to running sum
 				if (round == 2) begin
-					$display("\tsetting init_val of %0d to %0d", ie_curr, init_val);
+					/* $display("\tsetting init_val of %0d to %0d, ieleft = %d",
+						ie_curr, init_val, n_ie_left); */
 					pr_sum <= pr_sum + init_val;
 				end
 				else if (pr_rready) begin
-					$display("\tpr_odata for %0d = %h", ie_curr, pr_odata);
+					/* $display("\tpr_odata for %0d = %h", ie_curr, pr_odata); */
 					pr_sum <= pr_sum + pr_odata;
 				end
 
+
 				// ready to read in next ie vertex
 				n_ie_left <= n_ie_left - 1;
-				if (n_ie_left > 1)
-					logic_state <= L_IE_VERT;
+				logic_state <= L_IE_VERT;
 			end
 		end
 		L_WRITE: begin
 			if (wvalid_m & wready_m) begin
-				$display("---------------- WRITING %b to 0x%0h ----------------", pagerank, pr_waddr);
+				/* $display("---------------- WRITING %b to 0x%0h ----------------",
+					   		pagerank, pr_waddr); */
 				pr_wvalid <= 0;
 				v_count <= v_count + 1;
 				logic_state <= L_VERT;
 				dset <= 0;
+
+				// debugging
+				if (edge_fetched != edge_to_fetch)
+					$display("WRONG NUM EDGES for vertex %0d, %0d != %0d", 
+								v_count, edge_fetched, edge_to_fetch);
 			end
 		end
 	endcase
 
 	if (v_count == n_vertices) begin
-		$display("*** Done with round %0d of PR ***", round-1);
+		/* $display("*** Done with round %0d of PR ***", round-1); */
 		base_pr_waddr <= base_pr_raddr;
 		base_pr_raddr <= base_pr_waddr;
 		v_count <= 0;

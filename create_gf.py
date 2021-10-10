@@ -30,6 +30,12 @@ def generate_graph(vertices, edges):
 				G.add_edge(v, dest)
 				added_edges += 1
 
+# uncomment if you want every vertex to have at least one in-edge
+#	for v in G:
+#		if len(G.in_edges(v)) == 0:
+#			src = random.randrange(vertices)
+#			G.add_edge(src, v)
+
 	return G
 
 def int_to_bytestring(n, minlen=0):
@@ -59,11 +65,14 @@ def write_gf(G):
 	global separator
 	offset = 0
 	total_inedges = 0
-	with open('test.hex', 'w') as f:
+	max_inedges = 0
+	n_node = 0
+	with open('mem_init.hex', 'w') as f:
 		# vertex array
 		for node in G:
-			# write offset for in-edge array
+			# write number of in-edge vertices
 			f.write(int_to_bytestring(len(G.in_edges(node))))
+			n_node += 1
 			update_separator(f)
 			# write number of out-edges this vertex has
 			f.write(int_to_bytestring(len(G.out_edges(node))))
@@ -77,11 +86,15 @@ def write_gf(G):
 			for in_edge in random_edges:
 				f.write(int_to_bytestring(in_edge))
 				update_separator(f)
+			assert(len(G.in_edges(node)) == len(random_edges))
 			total_inedges += len(random_edges)
+			if len(random_edges) > max_inedges:
+				max_inedges = len(random_edges)
 		# 0-pad the rest
 		while separator % 8 != 0:
 			f.write(int_to_bytestring(0));
 			separator += 1
+	
 	
 	print("--- parameters (in decimal) ---")
 	print("N_VERT:", G.number_of_nodes())

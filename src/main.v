@@ -63,13 +63,13 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_VERT;
-		softreg_req_data = 64'd10;
+		softreg_req_data = 64'd1000;
 	end
 	32'd4: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_INEDGES;
-		softreg_req_data = 64'd56;
+		softreg_req_data = 64'd5441;
 	end
 	32'd5: begin
 		softreg_req_valid = 1;
@@ -81,25 +81,25 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `IEADDR;
-		softreg_req_data = 64'd160; // byte-addressable memory, 10(v+nout edges)*8bytes
+		softreg_req_data = 64'd16000; // byte-addressable memory, 10(v+nout edges)*8bytes
 	end
 	32'd7: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd640;
+		softreg_req_data = 64'd59528;
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd768;
+		softreg_req_data = 64'd67528;
 	end
 	32'd9: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_ROUNDS;
-		softreg_req_data = 64'd8;
+		softreg_req_data = 64'd4;
 	end
 	32'd10: begin
 		softreg_req_valid = 1;
@@ -107,7 +107,7 @@ always @(*) begin
 		softreg_req_addr = `DONE_READ_PARAMS;
 		softreg_req_data = 64'd0;
 	end
-	32'd5000: begin
+	32'd500000: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 0;
 		softreg_req_addr = `DONE_ALL;
@@ -130,7 +130,7 @@ end
 
 // instantiations
 axi_emu #(
-	.WORDS(100)
+	.WORDS(1500)
 ) ae (
 	.clk(clk),
 	.rst(rst),
