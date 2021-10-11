@@ -53,7 +53,7 @@ reg [2:0] arsize;  // TODO: handle properly
 
 reg [1:0] ar_state = 0;
 
-assign arready_m = ar_state == 2'h0;
+assign arready_m = ar_state == 2'h0 | (ar_state == 2'h1 &rready_m & arlen == 0);
 assign rvalid_m  = ar_state == 2'h1;
 
 assign rid_m = arid;
@@ -79,11 +79,20 @@ always @(posedge clk) begin
 		2'h1: begin
 			if (rready_m) begin
 				if (arlen == 0) begin
-					ar_state <= 2'h0;
+					// don't waste a cycle if ready to read
+					if (arvalid_m) begin
+						arid <= arid_m;
+						araddr <= araddr_m;
+						arlen <= arlen_m;
+						arsize <= arsize_m;
+					end
+					else
+						ar_state <= 2'h0;
 				end
-				
-				arlen <= arlen - 8'h1;
-				araddr <= araddr + 64'd64;
+				else begin
+					arlen <= arlen - 8'h1;
+					araddr <= araddr + 64'd64;
+				end
 			end
 		end
 		endcase
