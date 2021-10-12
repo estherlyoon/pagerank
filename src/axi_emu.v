@@ -35,13 +35,24 @@ module axi_emu #(
 	output [15:0] bid_m,
 	output [1:0]  bresp_m,
 	output        bvalid_m,
-	input         bready_m
+	input         bready_m,
+
+	output [31:0] count0,
+	output [31:0] count1,
+	output [31:0] count2
 );
+
+reg [31:0] rcounts [2:0];
 
 // physical memory
 reg [511:0] mem [WORDS-1:0];
+
+integer i;
 initial begin
 	$readmemh("./mem_init.hex", mem);
+	for (i=0; i<3; i+=1) begin
+		rcounts[i] = 0;
+	end
 end
 
 
@@ -61,6 +72,10 @@ assign rdata_m = mem[araddr[63:6]];
 assign rresp_m = (araddr[63:6] >= WORDS) ? 2'h2: 2'h0;
 assign rlast_m = arlen == 8'h0;
 
+assign count0 = rcounts[0];
+assign count1 = rcounts[1];
+assign count2 = rcounts[2];
+
 always @(posedge clk) begin
 	if (rst) begin
 		ar_state <= 2'h0;
@@ -78,6 +93,7 @@ always @(posedge clk) begin
 		end
 		2'h1: begin
 			if (rready_m) begin
+				rcounts[arid] <= rcounts[arid] + 1;
 				if (arlen == 0) begin
 					// don't waste a cycle if ready to read
 					if (arvalid_m) begin
