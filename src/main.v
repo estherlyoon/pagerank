@@ -57,6 +57,10 @@ reg [63:0] softreg_req_data;
 wire        softreg_resp_valid;
 wire [63:0] softreg_resp_data;
 
+wire [31:0] count0;
+wire [31:0] count1;
+wire [31:0] count2;
+
 always @(*) begin
 	case (count)
 	32'd3: begin
@@ -69,7 +73,7 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_INEDGES;
-		softreg_req_data = 64'd5441;
+		softreg_req_data = 64'd5515;
 	end
 	32'd5: begin
 		softreg_req_valid = 1;
@@ -87,19 +91,19 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd59528;
+		softreg_req_data = 64'd60120;
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd67528;
+		softreg_req_data = 64'd68120;
 	end
 	32'd9: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_ROUNDS;
-		softreg_req_data = 64'd4;
+		softreg_req_data = 64'd10;
 	end
 	32'd10: begin
 		softreg_req_valid = 1;
@@ -107,7 +111,7 @@ always @(*) begin
 		softreg_req_addr = `DONE_READ_PARAMS;
 		softreg_req_data = 64'd0;
 	end
-	32'd500000: begin
+	32'd5000000: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 0;
 		softreg_req_addr = `DONE_ALL;
@@ -130,7 +134,7 @@ end
 
 // instantiations
 axi_emu #(
-	.WORDS(1500)
+	.WORDS(1200)
 ) ae (
 	.clk(clk),
 	.rst(rst),
@@ -166,7 +170,11 @@ axi_emu #(
 	.bid_m(bid_m),
 	.bresp_m(bresp_m),
 	.bvalid_m(bvalid_m),
-	.bready_m(bready_m)
+	.bready_m(bready_m),
+
+	.count0(count0),
+	.count1(count1),
+	.count2(count2)
 );
 
 PageRank pagerank(
@@ -212,7 +220,11 @@ PageRank pagerank(
 	.softreg_req_data(softreg_req_data),
 	
 	.softreg_resp_valid(softreg_resp_valid),
-	.softreg_resp_data(softreg_resp_data)
+	.softreg_resp_data(softreg_resp_data),
+
+	.count0(count0),
+	.count1(count1),
+	.count2(count2)
 );
   
 endmodule

@@ -50,6 +50,10 @@ module PageRank(
 	input [31:0] count2
 );
 
+reg [31:0] count = 0;
+always @(posedge clk)
+	count <= count + 1;
+
 // length of integers in bits
 localparam INT_W = 64;
 localparam BYTE = 8;
@@ -341,6 +345,7 @@ always @(posedge clk) begin
 						$display("Read vert: %0d", count0);
 						$display("Read ie vert: %0d", count1);
 						$display("Read prs: %0d", count2);
+						$display("Total cycles: %0d", count);
 						$display("Done.");
 						$finish();
 					end
