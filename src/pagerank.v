@@ -255,7 +255,7 @@ always @(*) begin
 			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			arvalid_m = !ie_oready & ie_to_fetch > 0;
+			arvalid_m = !ie_oready & (ie_to_fetch > 0) & !ie_rready;
 		end
 		READ_PR: begin
 			arid_m = 2;
@@ -387,7 +387,7 @@ always @(posedge clk) begin
 			else pr_state <= READ_INEDGES;
 		end
 		READ_INEDGES: begin
-			if (arready_m & arvalid_m & !ie_rready) begin
+			if (arready_m & arvalid_m) begin // & !ie_rready) begin
 				ie_addr <= ie_addr[5:3] == 0 ? ie_addr+64 
 						 	: ie_addr+64-(ie_addr[5:3] << 3); // * 512/INT_W;	
 				ie_base <= ie_addr[5:3];
