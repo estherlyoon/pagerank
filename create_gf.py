@@ -66,13 +66,11 @@ def write_gf(G):
 	offset = 0
 	total_inedges = 0
 	max_inedges = 0
-	n_node = 0
 	with open('mem_init.hex', 'w') as f:
 		# vertex array
 		for node in G:
 			# write number of in-edge vertices
 			f.write(int_to_bytestring(len(G.in_edges(node))))
-			n_node += 1
 			update_separator(f)
 			# write number of out-edges this vertex has
 			f.write(int_to_bytestring(len(G.out_edges(node))))
@@ -110,14 +108,14 @@ def write_gf(G):
 
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')
-	parser.add_argument('-v', '--vertices', type=int, nargs=1,
+	parser.add_argument('-v', '--vertices', type=int,
 							help='number of vertices in graph')
-	parser.add_argument('-e', '--edges', type=int, nargs=1,
+	parser.add_argument('-e', '--edges', type=int,
 							help='max edges per node')
 
 	args = parser.parse_args()
-	vertices = args.vertices[0]
-	edges = args.edges[0]
+	vertices = args.vertices
+	edges = args.edges
 
 	G = generate_graph(vertices, edges)
 

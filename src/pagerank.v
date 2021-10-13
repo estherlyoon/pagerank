@@ -43,11 +43,11 @@ module PageRank(
 	input [63:0] softreg_req_data,
 	
 	output        softreg_resp_valid,
-	output [63:0] softreg_resp_data,
+	output [63:0] softreg_resp_data
 
-	input [31:0] count0,
-	input [31:0] count1,
-	input [31:0] count2
+	/* input [31:0] count0, */
+	/* input [31:0] count1, */
+	/* input [31:0] count2 */
 );
 
 reg [31:0] count = 0;
@@ -342,9 +342,9 @@ always @(posedge clk) begin
 				if (round == total_rounds+1) begin
                 	if (total_runs == 0) begin
 						$display("Cycle Counts:");
-						$display("Read vert: %0d", count0);
-						$display("Read ie vert: %0d", count1);
-						$display("Read prs: %0d", count2);
+						/* $display("Read vert: %0d", count0); */
+						/* $display("Read ie vert: %0d", count1); */
+						/* $display("Read prs: %0d", count2); */
 						$display("Total cycles: %0d", count);
 						$display("Done.");
 						$finish();
@@ -645,7 +645,7 @@ assign softreg_resp_data = sr_resp_data;
 always @(posedge clk) begin 
 	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
 	if (softreg_req_valid & !softreg_req_isWrite & softreg_req_addr == `DONE_ALL)
-		sr_resp_data <= 0; // TODO 
+		sr_resp_data <= 0; // TODO ?
 end
 
 endmodule

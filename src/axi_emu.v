@@ -35,11 +35,11 @@ module axi_emu #(
 	output [15:0] bid_m,
 	output [1:0]  bresp_m,
 	output        bvalid_m,
-	input         bready_m,
+	input         bready_m
 
-	output [31:0] count0,
-	output [31:0] count1,
-	output [31:0] count2
+	/* output [31:0] count0, */
+	/* output [31:0] count1, */
+	/* output [31:0] count2 */
 );
 
 reg [31:0] rcounts [2:0];
