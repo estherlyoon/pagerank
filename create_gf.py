@@ -69,8 +69,9 @@ def write_gf(G):
 	with open('mem_init.hex', 'w') as f:
 		# vertex array
 		for node in G:
-			# write number of in-edge vertices
-			f.write(int_to_bytestring(len(G.in_edges(node))))
+			# write offset into ie vertices array
+			f.write(int_to_bytestring(offset))
+			offset += len(G.in_edges(node))
 			update_separator(f)
 			# write number of out-edges this vertex has
 			f.write(int_to_bytestring(len(G.out_edges(node))))
