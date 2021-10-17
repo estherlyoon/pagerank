@@ -71,6 +71,7 @@ reg [7:0] pr_state = 0;
 
 // divider
 reg init_din = 0;
+reg init_div_over = 0;
 reg din = 0;
 wire dvalid = init_din | din;
 reg dset = 0;
@@ -265,7 +266,7 @@ always @(*) begin
     din_fifo_wrreq = vdone;
 	din_fifo_in =  { pr_sum, pr_divisor}; 
 
-	div_fifo_wrreq = dout;
+	div_fifo_wrreq = dout & init_div_over;
 	div_fifo_in = quotient;
 
 	case(pr_state)
@@ -339,7 +340,7 @@ always @(posedge clk) begin
 			ie_base <= ie_base_addr[5:3];
 			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
-			wait_priority <= 0;
+			if (init_din) $display("*** init_din = 1 ***");
 
 			if (round == 0) begin
 				if ((softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS)
@@ -367,6 +368,10 @@ always @(posedge clk) begin
 						/* $display("Read ie vert: %0d", count1); */
 						/* $display("Read prs: %0d", count2); */
 						$display("Total cycles: %0d", count);
+						$display("v_oready_cnt = %0d", v_oready_cnt);
+						$display("ie_oready_cnt = %0d", ie_oready_cnt);
+						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
+						$display("din_fifo_cnt = %0d", din_fifo_cnt);
 						$display("Done.");
 						$finish();
 					end
@@ -386,6 +391,7 @@ always @(posedge clk) begin
 						init_val <= quotient;
 						pr_state <= READ_VERT;
 						round <= round + 1;
+						init_div_over <= 1;
 						/* $display("\n*** Round 1: quotient is %b, remainder %b ***\n", */ 
 												/* quotient, remainder); */
 					end
@@ -394,7 +400,7 @@ always @(posedge clk) begin
 				else begin
 					pr_state <= READ_VERT;
 					round <= round + 1;
-					$display("\n\n*** Starting Round: %0d ***\n", round);
+					$display("\n\n*** Starting Round: %0d ***\n", round-1);
 				end
 			end
 		end
@@ -453,12 +459,21 @@ always @(posedge clk) begin
 		end
 	endcase
 
-	// finished a round, go back to wait
-	if (wb_vcount == n_vertices)
-		wait_priority <= 1;
-
 	if (rst)
 		pr_state <= WAIT;
+end
+
+reg [31:0] v_oready_cnt = 0;
+reg [31:0] ie_oready_cnt = 0;
+reg [31:0] pr_fifo_cnt = 0;
+reg [31:0] din_fifo_cnt = 0;
+
+// debug signals
+always @(posedge clk) begin
+	if (v_oready & !vert_fifo_full) v_oready_cnt <= v_oready_cnt + 1;
+	if (ie_oready & !inedge_fifo_full) ie_oready_cnt <= ie_oready_cnt + 1;
+	if (pr_fifo_wrreq & !pr_fifo_full) pr_fifo_cnt <= pr_fifo_cnt + 1;
+	if (din_fifo_wrreq & !din_fifo_full) din_fifo_cnt <= din_fifo_cnt + 1;
 end
 
 // FIFO for vertex in-edges offset + # out-edges stored as a pair
@@ -526,7 +541,7 @@ HullFIFO #(
 	.empty(div_fifo_empty)
 );
  
-// FIFO for division results
+// FIFO for random old PR requests
 HullFIFO #(
 	.TYPE(0),
 	.WIDTH(64),
@@ -559,11 +574,12 @@ reg [31:0] edge_to_fetch = 0;
 reg [1:0] vready = 0;
 reg [1:0] vfirst = 1; // TODO reset at each round
 
-reg ie_getpr = 1;
+wire ie_getpr = arvalid_m & arready_m & arid_m == 2;
 
 assign vert_fifo_rdreq = vready == GET_VERT;
-assign inedge_fifo_rdreq = ie_getpr & round != 2;
+assign inedge_fifo_rdreq = ie_getpr & round > 2;
 assign pr_fifo_rdreq = (vready == GET_SUM) & (n_ie_left > 0) & (round > 2);
+assign din_fifo_rdreq = !div_fifo_full;
 assign div_fifo_rdreq = wbready;
 
 localparam WAIT_VERT = 0;
@@ -635,13 +651,16 @@ always @(posedge clk) begin
 			end
 		end
 	endcase
+
+	// we've processed all vertices, reset what we need to
+	if (wb_vcount + 1 == n_vertices)
+		vfirst <= 1;
 end
 
 // INEDGES: read old PR, feed into results queue for VERT stage
 always @(posedge clk) begin
-	if (arvalid_m & arready_m & arid_m == 2) begin
+	if (ie_getpr)
 		pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
-	end
 end
 
 // DIV: receive #oe and pr sum, divide, put into wb fifo
@@ -650,6 +669,7 @@ always @(posedge clk) begin
 		din <= 1;
 		divisor <= din_fifo_out[INT_W*2-1:INT_W];
 		dividend <= din_fifo_out[INT_W-1:0];
+		$display("dividing %0d / %0d", din_fifo_out[INT_W-1:0], din_fifo_out[INT_W*2-1:INT_W]);
 	end
 	else din <= 0;
 
@@ -685,17 +705,17 @@ always @(posedge clk) begin
 			$display("*** Done with round %0d of PR ***", round-1);
 			base_pr_waddr <= base_pr_raddr;
 			base_pr_raddr <= base_pr_waddr;
-			vfirst <= 1;
+			wb_vcount <= 0;
+			wait_priority <= 1;
 		end
 		else begin
 			wb_vcount <= wb_vcount + 1;
 			$display("*** increment wb_vcount to %0d***", wb_vcount+1);
 		end
-
-		// TODO conditions for reset
-		/* if () */
-			wb_vcount <= 0;
 	end
+
+	if (pr_state == WAIT)
+		wait_priority <= 0;
 
 	// parameter initialization; need here because modifies base_pr addresses
 	if (softreg_req_valid & softreg_req_isWrite) begin
