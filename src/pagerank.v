@@ -231,7 +231,10 @@ reg [INT_W-1:0] n_ie_left;
 reg [INT_W-1:0] pr_sum = 0;
 reg [INT_W-1:0] pagerank;
 
-wire [INT_W-1:0] pr_divisor = round == 2 ? init_val: n_outedge0;
+// set when pr address set
+reg pr_pending = 0;
+
+wire [INT_W-1:0] pr_dividend = round == 2 ? init_val : pr_sum;
    
 // read interface
 always @(*) begin
@@ -264,7 +267,7 @@ always @(*) begin
 	pr_fifo_in = pr_odata;
 
     din_fifo_wrreq = vdone;
-	din_fifo_in =  { pr_sum, pr_divisor}; 
+	din_fifo_in =  { pr_dividend, n_outedge0}; 
 
 	div_fifo_wrreq = dout & init_div_over;
 	div_fifo_in = quotient;
@@ -281,13 +284,13 @@ always @(*) begin
 			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			arvalid_m = round != 2 & !ie_oready & ie_to_fetch > 0;
+			arvalid_m = round != 2 & !ie_oready & ie_to_fetch > 0 & ie_batch > 0 & !inedge_fifo_full;
 		end
 		READ_PR: begin
 			arid_m = 2;
 			araddr_m = pr_raddr;
 			arlen_m = 0;
-			arvalid_m = !pr_fifo_full & !inedge_fifo_empty;
+			arvalid_m = !pr_fifo_full & !inedge_fifo_empty & pr_pending;
 		end
 	endcase
 end
@@ -336,7 +339,9 @@ always @(posedge clk) begin
 
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
-			ie_batch <= 4;
+			// TODO issues with Buffer 1-cycle latency when reading multiple rounds
+			// can use more batches when Buffer can accept adjacent reads
+			ie_batch <= 1;
 			ie_base <= ie_base_addr[5:3];
 			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
@@ -352,7 +357,7 @@ always @(posedge clk) begin
 					$display("total_rounds: %0d", total_rounds-1);
 					$display("pr_raddr: 0x%x", base_pr_raddr);
 					$display("pr_waddr: 0x%x", base_pr_waddr);
-					$display("dividend = %b, divisor = %b", 1 << (PREC*2), n_vertices << PREC);
+					$display("dividend = %b, divisor = %b", (1 << PREC), n_vertices);
 
 					init_din <= 1;
 					round <= 1;
@@ -419,10 +424,7 @@ always @(posedge clk) begin
 			else pr_state <= READ_INEDGES;
 		end
 		READ_INEDGES: begin
-			if (round == 2 | inedge_fifo_full) pr_state <= READ_PR;
-			else if (ie_to_fetch == 0 | ie_batch == 0)
-				pr_state <= CONTROL;
-			else if (arready_m & arvalid_m) begin
+			if (arready_m & arvalid_m) begin
 				ie_addr <= ie_addr[5:3] == 0 ? ie_addr+64 
 						 	: ie_addr+64-(ie_addr[5:3] << 3); // * 512/INT_W;	
 				ie_base <= ie_addr[5:3];
@@ -433,8 +435,12 @@ always @(posedge clk) begin
 				else 
 					ie_to_fetch <= ie_to_fetch - 512/INT_W + ie_addr[5:3];
 
-				ie_batch <= ie_batch - 1;
+				/* ie_batch <= ie_batch - 1; */
+
+				// TODO
+				pr_state <= READ_PR;
 			end
+			else pr_state <= READ_PR;
 		end
 		READ_PR: begin
 			/* $display("READ_PR"); */
@@ -444,6 +450,8 @@ always @(posedge clk) begin
 			end
 			else if (vert_fifo_empty)
 				pr_state <= READ_VERT;
+			else if (inedge_fifo_empty)
+				pr_state <= READ_INEDGES;
 			else if (arready_m & arvalid_m)
 				pr_state <= CONTROL;
 		end
@@ -590,8 +598,13 @@ localparam GET_SUM = 2;
 always @(posedge clk) begin
 	case(vready)
 		WAIT_VERT: begin
-			if (pr_state == WAIT)
-				vready <= GET_VERT;
+			if (pr_state == WAIT) begin
+				if (round < 2)
+					if (init_div_over)
+						vready <= GET_VERT;
+				else
+					vready <= GET_VERT;
+			end
 		end
 		// read vertex to process, it's starting offset
 		GET_VERT: begin
@@ -644,6 +657,8 @@ always @(posedge clk) begin
 				vdone <= 1;
 				// start processing next vertex
 				vready <= GET_VERT;
+				pr_sum <= 0;
+
 				if (v_vcount+1 == n_vertices)
 					v_vcount <= 0;
 				else
@@ -659,17 +674,21 @@ end
 
 // INEDGES: read old PR, feed into results queue for VERT stage
 always @(posedge clk) begin
-	if (ie_getpr)
+	if (!pr_pending & !inedge_fifo_empty & !pr_fifo_full) begin
 		pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
+   		pr_pending <= 1;
+	end
+	else if (arready_m & arvalid_m & arid_m == 2)
+		pr_pending <= 0;
 end
 
 // DIV: receive #oe and pr sum, divide, put into wb fifo
 always @(posedge clk) begin
 	if (!din_fifo_empty & !div_fifo_full) begin
 		din <= 1;
-		divisor <= din_fifo_out[INT_W*2-1:INT_W];
-		dividend <= din_fifo_out[INT_W-1:0];
-		$display("dividing %0d / %0d", din_fifo_out[INT_W-1:0], din_fifo_out[INT_W*2-1:INT_W]);
+		dividend <= din_fifo_out[INT_W*2-1:INT_W];
+		divisor <= din_fifo_out[INT_W-1:0];
+		$display("dividing %0d / %0d", din_fifo_out[INT_W*2-1:INT_W], din_fifo_out[INT_W-1:0]);
 	end
 	else din <= 0;
 
