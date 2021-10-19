@@ -35,11 +35,11 @@ module axi_emu #(
 	output [15:0] bid_m,
 	output [1:0]  bresp_m,
 	output        bvalid_m,
-	input         bready_m
+	input         bready_m,
 
-	/* output [31:0] count0, */
-	/* output [31:0] count1, */
-	/* output [31:0] count2 */
+	output [31:0] count0,
+	output [31:0] count1,
+	output [31:0] count2
 );
 
 reg [31:0] rcounts [2:0];
@@ -158,7 +158,7 @@ always @(posedge clk) begin
 		end
 		2'h1: begin
 			if (wvalid_m) begin
-				/* $display("AXI writing line %h", line); */
+				$display("AXI writing line %h", line);
 				mem[awaddr[63:6]] <= line;
 				
 				awaddr <= awaddr + 64'd64;

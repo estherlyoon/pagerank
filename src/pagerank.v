@@ -43,11 +43,11 @@ module PageRank(
 	input [63:0] softreg_req_data,
 	
 	output        softreg_resp_valid,
-	output [63:0] softreg_resp_data
+	output [63:0] softreg_resp_data,
 
-	/* input [31:0] count0, */
-	/* input [31:0] count1, */
-	/* input [31:0] count2 */
+	input [31:0] count0,
+	input [31:0] count1,
+	input [31:0] count2
 );
 
 reg [31:0] count = 0;
@@ -224,8 +224,8 @@ reg pr_awvalid = 0;
 reg vdone = 0;
 reg [INT_W-1:0] v_vcount = 0;
 reg [INT_W-1:0] wb_vcount = 0;
-reg [INT_W*2-1:0] n_outedge0;
-reg [INT_W*2-1:0] n_outedge1;
+reg [INT_W-1:0] n_outedge0;
+reg [INT_W-1:0] n_outedge1;
 reg [INT_W-1:0] ie_offset;
 reg [INT_W-1:0] n_ie_left;
 reg [INT_W-1:0] pr_sum = 0;
@@ -345,8 +345,6 @@ always @(posedge clk) begin
 			ie_base <= ie_base_addr[5:3];
 			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
-			if (init_din) $display("*** init_din = 1 ***");
-
 			if (round == 0) begin
 				if ((softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS)
 						| next_run) begin
@@ -369,10 +367,11 @@ always @(posedge clk) begin
 				if (round == total_rounds+1) begin
                 	if (total_runs == 0) begin
 						$display("Cycle Counts:");
-						/* $display("Read vert: %0d", count0); */
-						/* $display("Read ie vert: %0d", count1); */
-						/* $display("Read prs: %0d", count2); */
+						$display("Read vert: %0d", count0);
+						$display("Read ie vert: %0d", count1);
+						$display("Read prs: %0d", count2);
 						$display("Total cycles: %0d", count);
+						$display("--------------------------------");
 						$display("v_oready_cnt = %0d", v_oready_cnt);
 						$display("ie_oready_cnt = %0d", ie_oready_cnt);
 						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
@@ -445,7 +444,7 @@ always @(posedge clk) begin
 		READ_PR: begin
 			/* $display("READ_PR"); */
 			if (wait_priority) begin
-				$display("back in wait");
+				/* $display("back in wait"); */
 				pr_state <= WAIT;
 			end
 			else if (vert_fifo_empty)
@@ -641,8 +640,8 @@ always @(posedge clk) begin
 		GET_SUM: begin
 			if (n_ie_left > 0) begin
 				// fetch PR of current in-edge vertex, add it to running sum
-				$display("\tIE -- %0d", n_ie_left);
  				if (round == 2 | !pr_fifo_empty) begin
+					/* $display("\tIE -- %0d", n_ie_left); */
 					if (round == 2) pr_sum <= pr_sum + init_val;
 					else begin
 						pr_sum <= pr_sum + pr_fifo_out;
@@ -686,9 +685,9 @@ end
 always @(posedge clk) begin
 	if (!din_fifo_empty & !div_fifo_full) begin
 		din <= 1;
-		dividend <= din_fifo_out[INT_W*2-1:INT_W];
+		dividend <= din_fifo_out[INT_W*2-1:INT_W] << PREC;
 		divisor <= din_fifo_out[INT_W-1:0];
-		$display("dividing %0d / %0d", din_fifo_out[INT_W*2-1:INT_W], din_fifo_out[INT_W-1:0]);
+		/* $display("dividing %0d / %0d", din_fifo_out[INT_W*2-1:INT_W], din_fifo_out[INT_W-1:0]); */
 	end
 	else din <= 0;
 
@@ -727,10 +726,7 @@ always @(posedge clk) begin
 			wb_vcount <= 0;
 			wait_priority <= 1;
 		end
-		else begin
-			wb_vcount <= wb_vcount + 1;
-			$display("*** increment wb_vcount to %0d***", wb_vcount+1);
-		end
+		else wb_vcount <= wb_vcount + 1;
 	end
 
 	if (pr_state == WAIT)

@@ -63,13 +63,13 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_VERT;
-		softreg_req_data = 64'd10;
+		softreg_req_data = 64'd1000;
 	end
 	32'd4: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_INEDGES;
-		softreg_req_data = 64'd35;
+		softreg_req_data = 64'd5508;
 	end
 	32'd5: begin
 		softreg_req_valid = 1;
@@ -81,25 +81,25 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `IEADDR;
-		softreg_req_data = 64'd160; // byte-addressable memory, 10(v+nout edges)*8bytes
+		softreg_req_data = 64'd16000; // byte-addressable memory, 10(v+nout edges)*8bytes
 	end
 	32'd7: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd440;
+		softreg_req_data = 64'd60064;
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd520;
+		softreg_req_data = 64'd68064;
 	end
 	32'd9: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_ROUNDS;
-		softreg_req_data = 64'd2;
+		softreg_req_data = 64'd10;
 	end
 	32'd10: begin
 		softreg_req_valid = 1;
@@ -128,9 +128,13 @@ always @(posedge clk) begin
 	end
 end
 
+wire [31:0] count0;
+wire [31:0] count1;
+wire [31:0] count2;
+
 // instantiations
 axi_emu #(
-	.WORDS(100)
+	.WORDS(1200)
 ) ae (
 	.clk(clk),
 	.rst(rst),
@@ -166,7 +170,11 @@ axi_emu #(
 	.bid_m(bid_m),
 	.bresp_m(bresp_m),
 	.bvalid_m(bvalid_m),
-	.bready_m(bready_m)
+	.bready_m(bready_m),
+
+	.count0(count0),
+	.count1(count1),
+	.count2(count2)
 );
 
 PageRank pagerank(
@@ -212,7 +220,11 @@ PageRank pagerank(
 	.softreg_req_data(softreg_req_data),
 	
 	.softreg_resp_valid(softreg_resp_valid),
-	.softreg_resp_data(softreg_resp_data)
+	.softreg_resp_data(softreg_resp_data),
+
+	.count0(count0),
+	.count1(count1),
+	.count2(count2)
 );
   
 endmodule
