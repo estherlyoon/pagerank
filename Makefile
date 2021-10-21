@@ -1,16 +1,17 @@
 
 SRC_DIR := src
-BIN_DIR := bin
+BIN_DIR := ../bin
 
 EXEC := ${BIN_DIR}/page_rank
-VFILES := $(wildcard $(SRC_DIR)/*.v)
+DVFILES := $(wildcard $(SRC_DIR)/*.v)
+VFILES := $(notdir ${DVFILES})
 
 .PHONY: all clean
 
 all: ${EXEC}
 
-${EXEC}: ${VFILES} ${BIN_DIR}
-	iverilog -o $@ ${VFILES}
+${EXEC}: ${DVFILES} ${BIN_DIR}
+	cd src && iverilog -o $@ ${VFILES} && cd -
 
 ${BIN_DIR}:
 	mkdir -p $@

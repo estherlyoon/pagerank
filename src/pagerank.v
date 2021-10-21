@@ -1,4 +1,4 @@
-`include "src/constants.v"
+`include "pr_constants.v"
 
 module PageRank(
 	input clk,
