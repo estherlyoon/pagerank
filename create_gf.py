@@ -60,7 +60,6 @@ def update_separator(f):
 	if separator % 8 == 0:
 		f.write("\n")
 
-
 def write_gf(G):
 	global separator
 	offset = 0
@@ -89,9 +88,13 @@ def write_gf(G):
 			total_inedges += len(random_edges)
 			if len(random_edges) > max_inedges:
 				max_inedges = len(random_edges)
+		# fill writespace with 0s
+		for _ in range(2*G.number_of_nodes()):
+			f.write(int_to_bytestring(0))
+			update_separator(f)
 		# 0-pad the rest
 		while separator % 8 != 0:
-			f.write(int_to_bytestring(0));
+			f.write(int_to_bytestring(0))
 			separator += 1
 	
 	

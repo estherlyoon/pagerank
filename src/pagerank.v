@@ -220,6 +220,7 @@ reg [63:0] base_pr_waddr;
 // I think it can always be ready for now (only need awvalid logic)
 reg pr_wvalid = 1;
 reg pr_awvalid = 0;
+reg wbready = 1;
 // indicates whether pr sum is done for a vertex
 reg vdone = 0;
 reg [INT_W-1:0] v_vcount = 0;
@@ -234,7 +235,12 @@ reg [INT_W-1:0] pagerank;
 // set when pr address set
 reg pr_pending = 0;
 
-wire [INT_W-1:0] pr_dividend = round == 2 ? init_val : pr_sum;
+always @(posedge clk) begin
+	/* if (div_fifo_wrreq) */
+	/* 	$display("QUOTIENT: %0b", quotient); */
+end
+
+wire [INT_W-1:0] pr_dividend = pr_sum;
    
 // read interface
 always @(*) begin
@@ -272,6 +278,14 @@ always @(*) begin
 	div_fifo_wrreq = dout & init_div_over;
 	div_fifo_in = quotient;
 
+	// for debug
+	/* if (!reads_done &!print_done & wb_vcount + 1 == n_vertices) begin */
+	/* 	arid_m = 3; */
+	/* 	arlen_m = 0; */
+	/* 	arvalid_m = 1; */
+	/* 	araddr_m = base_pr_waddr + 16; */
+	/* end */
+	/* else begin */
 	case(pr_state)
 		READ_VERT: begin
 			arid_m = 0;
@@ -293,6 +307,7 @@ always @(*) begin
 			arvalid_m = !pr_fifo_full & !inedge_fifo_empty & pr_pending;
 		end
 	endcase
+	/* end */
 end
 
 // determine which part of line to write back
@@ -322,6 +337,12 @@ always @(*) begin
 
 	bready_m = 1;
 end
+
+// output signals
+reg sr_resp_valid = 0;
+reg [63:0] sr_resp_data = 0;
+assign softreg_resp_valid = sr_resp_valid;
+assign softreg_resp_data = sr_resp_data;
 
 /* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
 /* currently round-robin between read types, but if streaming buffers are full,
@@ -355,7 +376,7 @@ always @(posedge clk) begin
 					$display("total_rounds: %0d", total_rounds-1);
 					$display("pr_raddr: 0x%x", base_pr_raddr);
 					$display("pr_waddr: 0x%x", base_pr_waddr);
-					$display("dividend = %b, divisor = %b", (1 << PREC), n_vertices);
+					$display("dividend = %0b, divisor = %0b", (1 << PREC), n_vertices);
 
 					init_din <= 1;
 					round <= 1;
@@ -377,7 +398,9 @@ always @(posedge clk) begin
 						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
 						$display("din_fifo_cnt = %0d", din_fifo_cnt);
 						$display("Done.");
-						$finish();
+						// finish
+						sr_resp_valid <= 1;
+						sr_resp_data <= 1;
 					end
 					else begin
 						// start another run on n rounds
@@ -393,6 +416,7 @@ always @(posedge clk) begin
 					// wait for initial division to complete
 					if (dout) begin
 						init_val <= quotient;
+						$display("init_val: %0b, %0d", quotient, quotient);
 						pr_state <= READ_VERT;
 						round <= round + 1;
 						init_div_over <= 1;
@@ -404,7 +428,7 @@ always @(posedge clk) begin
 				else begin
 					pr_state <= READ_VERT;
 					round <= round + 1;
-					$display("\n\n*** Starting Round: %0d ***\n", round-1);
+					$display("\n*** Starting Round: %0d ***", round-1);
 				end
 			end
 		end
@@ -579,7 +603,7 @@ reg [31:0] edge_fetched = 0;
 reg [31:0] edge_to_fetch = 0;
 
 reg [1:0] vready = 0;
-reg [1:0] vfirst = 1; // TODO reset at each round
+reg [1:0] vfirst = 1;
 
 wire ie_getpr = arvalid_m & arready_m & arid_m == 2;
 
@@ -598,11 +622,12 @@ always @(posedge clk) begin
 	case(vready)
 		WAIT_VERT: begin
 			if (pr_state == WAIT) begin
-				if (round < 2)
-					if (init_div_over)
-						vready <= GET_VERT;
-				else
+				if (round < 2 & init_div_over)
 					vready <= GET_VERT;
+				else begin
+					vready <= GET_VERT;
+					pr_sum <= 0;
+				end
 			end
 		end
 		// read vertex to process, it's starting offset
@@ -642,21 +667,19 @@ always @(posedge clk) begin
 				// fetch PR of current in-edge vertex, add it to running sum
  				if (round == 2 | !pr_fifo_empty) begin
 					/* $display("\tIE -- %0d", n_ie_left); */
-					if (round == 2) pr_sum <= pr_sum + init_val;
-					else begin
+					if (round == 2)
+						pr_sum <= pr_sum + init_val;
+					else
 						pr_sum <= pr_sum + pr_fifo_out;
-					end
 					n_ie_left -= 1;
 				end
 			end
 			else begin
-				$display("VERTEX %0d (%0x offset)", v_vcount, 
-					n_outedge0);
+				/* $display("VERTEX %0d", v_vcount); */
 				// put sum into divider, when divider is done it writesback
 				vdone <= 1;
 				// start processing next vertex
 				vready <= GET_VERT;
-				pr_sum <= 0;
 
 				if (v_vcount+1 == n_vertices)
 					v_vcount <= 0;
@@ -685,9 +708,9 @@ end
 always @(posedge clk) begin
 	if (!din_fifo_empty & !div_fifo_full) begin
 		din <= 1;
-		dividend <= din_fifo_out[INT_W*2-1:INT_W] << PREC;
+		dividend <= din_fifo_out[INT_W*2-1:INT_W];
 		divisor <= din_fifo_out[INT_W-1:0];
-		/* $display("dividing %0d / %0d", din_fifo_out[INT_W*2-1:INT_W], din_fifo_out[INT_W-1:0]); */
+		/* $display("dividing %0b / %0b", din_fifo_out[INT_W*2-1:INT_W], din_fifo_out[INT_W-1:0]); */
 	end
 	else din <= 0;
 
@@ -700,7 +723,41 @@ always @(posedge clk) begin
 	end
 end
 
-reg wbready = 1;
+/* reg print_done = 0; */
+/* reg reads_done = 0; */
+/* reg [511:0] line0 = 0; */
+
+// for debug
+/* always @(posedge clk) begin */
+/* 	if (!reads_done &!print_done & wb_vcount + 1 == n_vertices) begin */
+/* 		if (rid_m == 3 & rvalid_m) begin */
+/* 			line0 <= rdata_m; */
+/* 			/1* $display("line: %0b", rdata_m); *1/ */
+/* 			reads_done <= 1; */
+/* 		end */
+/* 	end */
+/* end */
+
+/* genvar p; */
+/* generate */
+/* 	for (p=0; p<8; p = p+1) begin */
+/* 		always @(posedge clk) begin */
+/* 			if (reads_done & !print_done & wb_vcount + 1 == n_vertices) begin */
+/* 				$display("PR %0d = %0b", p+2, line0[511-p*64-1:448-64*p]); */
+/* 				print_done <= 1; */
+/* 				reads_done <= 0; */
+/* 			end */
+/* 		end */
+/* 	end */
+	/* for (p=0; p<2; p = p+1) begin */
+	/* 	always @(posedge clk) begin */
+	/* 		if (reads_done & !print_done & wb_vcount + 1 == n_vertices) begin */
+	/* 			$display("PR %0d = %0b", p+8, line1[511-p*64-1:448-64*p]); */
+	/* 			print_done <= 1; */
+	/* 		end */
+	/* 	end */
+	/* end */
+/* endgenerate */
 
 // WB: receive from DIV and WB fifo, writeback new PR
 always @(posedge clk) begin
@@ -715,12 +772,12 @@ always @(posedge clk) begin
 	if (pr_awvalid) pr_awvalid <= 0;
 
 	if (!wbready & wvalid_m & wready_m) begin
-		/* $display("---------------- WRITING %b to 0x%0h ----------------", */
+		/* $display("--------- WRITING %0b to 0x%0h ---------", */
 		/* 	   		pagerank, pr_waddr); */
 		wbready <= 1;
 
 		if (wb_vcount + 1 == n_vertices) begin
-			$display("*** Done with round %0d of PR ***", round-1);
+			$display("*** Done with round %0d of PR ***", round-2);
 			base_pr_waddr <= base_pr_raddr;
 			base_pr_raddr <= base_pr_waddr;
 			wb_vcount <= 0;
@@ -728,6 +785,18 @@ always @(posedge clk) begin
 		end
 		else wb_vcount <= wb_vcount + 1;
 	end
+ 
+		// for debug
+		/* if (wb_vcount + 1 == n_vertices) begin */
+		/* 	if (print_done) begin */
+		/* 		print_done <= 0; */
+		/* 		$display("*** Done with round %0d of PR ***", round-2); */
+		/* 		base_pr_waddr <= base_pr_raddr; */
+		/* 		base_pr_raddr <= base_pr_waddr; */
+		/* 		wb_vcount <= 0; */
+		/* 		wait_priority <= 1; */
+		/* 	end */
+		/* end */ 
 
 	if (pr_state == WAIT)
 		wait_priority <= 0;
@@ -744,18 +813,6 @@ always @(posedge clk) begin
 			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init stage
 		endcase
 	end
-end
-
-// output logic
-reg sr_resp_valid;
-reg [63:0] sr_resp_data;
-assign softreg_resp_valid = sr_resp_valid;
-assign softreg_resp_data = sr_resp_data;
-
-always @(posedge clk) begin 
-	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
-	if (softreg_req_valid & !softreg_req_isWrite & softreg_req_addr == `DONE_ALL)
-		sr_resp_data <= 0; // TODO ?
 end
 
 endmodule

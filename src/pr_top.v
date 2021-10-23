@@ -63,13 +63,13 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_VERT;
-		softreg_req_data = 64'd1000;
+		softreg_req_data = 64'd10;
 	end
 	32'd4: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_INEDGES;
-		softreg_req_data = 64'd5508;
+		softreg_req_data = 64'd32;
 	end
 	32'd5: begin
 		softreg_req_valid = 1;
@@ -81,19 +81,19 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `IEADDR;
-		softreg_req_data = 64'd16000; // byte-addressable memory, 10(v+nout edges)*8bytes
+		softreg_req_data = 64'd160; // byte-addressable memory, 10(v+nout edges)*8bytes
 	end
 	32'd7: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd60064;
+		softreg_req_data = 64'd416;
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd68064;
+		softreg_req_data = 64'd496;
 	end
 	32'd9: begin
 		softreg_req_valid = 1;
@@ -123,7 +123,7 @@ always @(*) begin
 end
 always @(posedge clk) begin
 	if (softreg_resp_valid) begin
-		/* $display("total sum: %d", softreg_resp_data); */
+		$display("exit status (1 is success): %0d", softreg_resp_data);
 		$finish(0);
 	end
 end
@@ -134,7 +134,7 @@ wire [31:0] count2;
 
 // instantiations
 axi_emu #(
-	.WORDS(1200)
+	.WORDS(300)
 ) ae (
 	.clk(clk),
 	.rst(rst),
