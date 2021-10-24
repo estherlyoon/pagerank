@@ -344,6 +344,19 @@ reg [63:0] sr_resp_data = 0;
 assign softreg_resp_valid = sr_resp_valid;
 assign softreg_resp_data = sr_resp_data;
 
+always @(posedge clk) begin
+	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
+	if (softreg_req_valid & !softreg_req_isWrite) begin
+		case (softreg_req_addr)
+			32'h28: sr_resp_data <= vert_to_fetch;
+			32'h30: sr_resp_data <= ie_to_fetch;
+			32'h38: sr_resp_data <= total_runs;
+			32'h40: sr_resp_data <= round-1;
+			default: sr_resp_data <= 0;
+		endcase
+	end
+end
+
 /* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
 /* currently round-robin between read types, but if streaming buffers are full,
 /* will keep performing random reads
@@ -398,9 +411,6 @@ always @(posedge clk) begin
 						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
 						$display("din_fifo_cnt = %0d", din_fifo_cnt);
 						$display("Done.");
-						// finish
-						sr_resp_valid <= 1;
-						sr_resp_data <= 1;
 					end
 					else begin
 						// start another run on n rounds
