@@ -358,9 +358,9 @@ always @(posedge clk) begin
 end
 
 /* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
-/* currently round-robin between read types, but if streaming buffers are full,
-/* will keep performing random reads
- */
+currently round-robin between read types, but if streaming buffers are full,
+will keep performing random reads
+*/
 always @(posedge clk) begin
 
 	case(pr_state)
@@ -617,15 +617,15 @@ reg [1:0] vfirst = 1;
 
 wire ie_getpr = arvalid_m & arready_m & arid_m == 2;
 
+localparam WAIT_VERT = 0;
+localparam GET_VERT = 1;
+localparam GET_SUM = 2;
+
 assign vert_fifo_rdreq = vready == GET_VERT;
 assign inedge_fifo_rdreq = ie_getpr & round > 2;
 assign pr_fifo_rdreq = (vready == GET_SUM) & (n_ie_left > 0) & (round > 2);
 assign din_fifo_rdreq = !div_fifo_full;
 assign div_fifo_rdreq = wbready;
-
-localparam WAIT_VERT = 0;
-localparam GET_VERT = 1;
-localparam GET_SUM = 2;
 
 // VERT: read 2 things to get # i-e, store both # oe, wait for PR reads
 always @(posedge clk) begin
@@ -681,7 +681,7 @@ always @(posedge clk) begin
 						pr_sum <= pr_sum + init_val;
 					else
 						pr_sum <= pr_sum + pr_fifo_out;
-					n_ie_left -= 1;
+					n_ie_left <= n_ie_left - 1;
 				end
 			end
 			else begin
