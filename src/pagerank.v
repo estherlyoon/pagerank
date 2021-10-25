@@ -342,14 +342,23 @@ always @(posedge clk) begin
 	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
 	if (softreg_req_valid & !softreg_req_isWrite) begin
 		case (softreg_req_addr)
-			32'h08: sr_resp_data <= n_vertices;
-			32'h18: sr_resp_data <= n_inedges;
-			32'h18: sr_resp_data <= softreg_req_addr;
-			32'h20: sr_resp_data <= pr_state;
-			32'h28: sr_resp_data <= vert_to_fetch;
-			32'h30: sr_resp_data <= ie_to_fetch;
-			32'h38: sr_resp_data <= total_runs;
-			32'h40: sr_resp_data <= round;
+			 32'h00: sr_resp_data <= n_vertices;
+			 32'h08: sr_resp_data <= n_inedges;
+			 32'h10: sr_resp_data <= v_vcount;
+			 32'h18: sr_resp_data <= softreg_req_addr;
+			 32'h20: sr_resp_data <= pr_state;
+			 32'h28: sr_resp_data <= vert_to_fetch;
+			 32'h30: sr_resp_data <= ie_to_fetch;
+			 32'h38: sr_resp_data <= total_runs;
+			 32'h40: sr_resp_data <= round;
+			 32'h48: sr_resp_data <= pr_pending;
+			 32'h50: sr_resp_data <= din;
+			 32'h58: sr_resp_data <= rvalid_m ? rid_m : 666;
+			 32'h60: sr_resp_data <= arready_m;
+			 32'h68: sr_resp_data <= arvalid_m;
+			 32'h70: sr_resp_data <= arid_m;
+			 32'h78: sr_resp_data <= v_oready;  
+			 32'h80: sr_resp_data <= ie_oready;
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -452,7 +461,8 @@ always @(posedge clk) begin
 
 				pr_state <= READ_INEDGES;
 			end  
-			else pr_state <= READ_INEDGES;
+			else if (!arvalid_m)
+				pr_state <= READ_INEDGES;
 		end
 		READ_INEDGES: begin
 			if (arready_m & arvalid_m) begin
@@ -470,19 +480,17 @@ always @(posedge clk) begin
 
 				pr_state <= READ_PR;
 			end
-			else pr_state <= READ_PR;
+			else if (!arvalid_m)
+				pr_state <= READ_PR;
 		end
 		READ_PR: begin
-			/* $display("READ_PR"); */
-			if (wait_priority) begin
-				/* $display("back in wait"); */
+			if (wait_priority)
 				pr_state <= WAIT;
-			end
 			else if (vert_fifo_empty)
 				pr_state <= READ_VERT;
 			else if (inedge_fifo_empty)
 				pr_state <= READ_INEDGES;
-			else if (arready_m & arvalid_m)
+			else if ((arready_m & arvalid_m) | !arvalid_m)
 				pr_state <= CONTROL;
 		end
 		CONTROL: begin
@@ -492,8 +500,6 @@ always @(posedge clk) begin
 				pr_state <= READ_INEDGES;
 			else
 				pr_state <= READ_PR;
-			/* else */ // TODO conditions for this
-			/* 	pr_state <= WAIT; */
 		end
 	endcase
 
