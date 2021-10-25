@@ -158,7 +158,7 @@ always @(posedge clk) begin
 		end
 		2'h1: begin
 			if (wvalid_m) begin
-				$display("AXI writing line %h", line);
+				/* $display("AXI W %0b", line); */
 				mem[awaddr[63:6]] <= line;
 				
 				awaddr <= awaddr + 64'd64;
