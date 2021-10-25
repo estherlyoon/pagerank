@@ -231,16 +231,10 @@ reg [INT_W-1:0] ie_offset;
 reg [INT_W-1:0] n_ie_left;
 reg [INT_W-1:0] pr_sum = 0;
 reg [INT_W-1:0] pagerank;
+wire [INT_W-1:0] pr_dividend = pr_sum;
 
 // set when pr address set
 reg pr_pending = 0;
-
-always @(posedge clk) begin
-	/* if (div_fifo_wrreq) */
-	/* 	$display("QUOTIENT: %0b", quotient); */
-end
-
-wire [INT_W-1:0] pr_dividend = pr_sum;
    
 // read interface
 always @(*) begin
@@ -348,10 +342,12 @@ always @(posedge clk) begin
 	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
 	if (softreg_req_valid & !softreg_req_isWrite) begin
 		case (softreg_req_addr)
+			32'h18: sr_resp_data <= softreg_req_addr;
+			32'h20: sr_resp_data <= pr_state;
 			32'h28: sr_resp_data <= vert_to_fetch;
 			32'h30: sr_resp_data <= ie_to_fetch;
 			32'h38: sr_resp_data <= total_runs;
-			32'h40: sr_resp_data <= round-1;
+			32'h40: sr_resp_data <= round;
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -459,7 +455,7 @@ always @(posedge clk) begin
 		READ_INEDGES: begin
 			if (arready_m & arvalid_m) begin
 				ie_addr <= ie_addr[5:3] == 0 ? ie_addr+64 
-						 	: ie_addr+64-(ie_addr[5:3] << 3); // * 512/INT_W;	
+						 	: ie_addr+64-(ie_addr[5:3] << 3);
 				ie_base <= ie_addr[5:3];
 				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
@@ -470,7 +466,6 @@ always @(posedge clk) begin
 
 				/* ie_batch <= ie_batch - 1; */
 
-				// TODO
 				pr_state <= READ_PR;
 			end
 			else pr_state <= READ_PR;
