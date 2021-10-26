@@ -338,6 +338,13 @@ reg [63:0] sr_resp_data = 0;
 assign softreg_resp_valid = sr_resp_valid;
 assign softreg_resp_data = sr_resp_data;
 
+// temp debugging
+reg [63:0] v_counter = 0;
+reg [63:0] ie_counter = 0;
+reg [63:0] pr_counter = 0;
+reg [63:0] v_zero = 0;
+reg [63:0] ie_zero = 0;
+
 always @(posedge clk) begin
 	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
 	if (softreg_req_valid & !softreg_req_isWrite) begin
@@ -359,6 +366,20 @@ always @(posedge clk) begin
 			 32'h70: sr_resp_data <= arid_m;
 			 32'h78: sr_resp_data <= v_oready;  
 			 32'h80: sr_resp_data <= ie_oready;
+			 32'h88: sr_resp_data <= init_val;
+			 32'h90: sr_resp_data <= init_div_over;
+			 32'h98: sr_resp_data <= vfirst;
+			 32'ha0: sr_resp_data <= vert_fifo_empty;
+			 32'ha8: sr_resp_data <= inedge_fifo_empty;
+			 32'hb0: sr_resp_data <= vert_fifo_rdreq;
+			 32'hb8: sr_resp_data <= ie_getpr;
+			 32'hc0: sr_resp_data <= v_counter;
+			 32'hc8: sr_resp_data <= v_zero;  
+			 32'hd0: sr_resp_data <= ie_counter;
+			 32'hd8: sr_resp_data <= ie_zero;
+			 32'he0: sr_resp_data <= pr_counter;
+			 32'he8: sr_resp_data <= ie_addr;  
+			 32'hf0: sr_resp_data <= v_addr;  
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -456,7 +477,12 @@ always @(posedge clk) begin
 				v_base <= 0;
 				v_bounds <= vert_to_fetch < 512/(INT_W*2) ? vert_to_fetch : 512/(INT_W*2);
 
-				if (vert_to_fetch <= 512/(INT_W*2))	vert_to_fetch <= 0;
+				v_counter <= v_counter + 1;
+
+				if (vert_to_fetch <= 512/(INT_W*2))	begin
+					vert_to_fetch <= 0;
+					v_zero <= 1;
+				end
 				else vert_to_fetch <= vert_to_fetch - 512/(INT_W*2);
 
 				pr_state <= READ_INEDGES;
@@ -471,8 +497,12 @@ always @(posedge clk) begin
 				ie_base <= ie_addr[5:3];
 				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
-				if (ie_to_fetch <= 512/INT_W) 
+				ie_counter <= ie_counter + 1;
+
+				if (ie_to_fetch <= 512/INT_W) begin
 					ie_to_fetch <= 0;
+					ie_zero <= 1;
+				end
 				else 
 					ie_to_fetch <= ie_to_fetch - 512/INT_W + ie_addr[5:3];
 
@@ -490,8 +520,11 @@ always @(posedge clk) begin
 				pr_state <= READ_VERT;
 			else if (inedge_fifo_empty)
 				pr_state <= READ_INEDGES;
-			else if ((arready_m & arvalid_m) | !arvalid_m)
+			else if ((arready_m & arvalid_m) | !arvalid_m) begin
 				pr_state <= CONTROL;
+				if (arready_m & arvalid_m)
+					pr_counter <= pr_counter + 1;
+			end
 		end
 		CONTROL: begin
 			if (vert_to_fetch > 0 & !v_oready)
