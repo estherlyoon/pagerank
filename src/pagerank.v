@@ -380,6 +380,20 @@ always @(posedge clk) begin
 			 32'he0: sr_resp_data <= pr_counter;
 			 32'he8: sr_resp_data <= ie_addr;  
 			 32'hf0: sr_resp_data <= v_addr;  
+			 32'hf8: sr_resp_data <= wb_vcount;  
+			 32'h100: sr_resp_data <= vready;  
+			 32'h108: sr_resp_data <= vdone;  
+			 32'h110: sr_resp_data <= ie_offset;  
+			 32'h118: sr_resp_data <= n_ie_left;  
+			 32'h120: sr_resp_data <= dividend;  
+			 32'h128: sr_resp_data <= divisor;  
+			 32'h130: sr_resp_data <= pr_waddr;  
+			 32'h138: sr_resp_data <= wbready;  
+			 32'h140: sr_resp_data <= has_waited;  
+			 32'h148: sr_resp_data <= pr_pending;  
+			 32'h150: sr_resp_data <= div_fifo_empty;  
+			 32'h158: sr_resp_data <= din_fifo_empty;  
+			 32'h160: sr_resp_data <= pr_fifo_empty;  
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -389,11 +403,16 @@ end
 currently round-robin between read types, but if streaming buffers are full,
 will keep performing random reads
 */
+// TODO add rst
+
+reg has_waited = 0;
+
 always @(posedge clk) begin
 
 	case(pr_state)
 		// wait for start of each round
 		WAIT: begin
+			has_waited <= 1;
 			v_addr <= v_base_addr;
 			vert_to_fetch <= n_vertices;
 			v_base <= 0;
@@ -657,7 +676,7 @@ localparam WAIT_VERT = 0;
 localparam GET_VERT = 1;
 localparam GET_SUM = 2;
 
-assign vert_fifo_rdreq = vready == GET_VERT;
+assign vert_fifo_rdreq = vready == GET_VERT & !vfirst;
 assign inedge_fifo_rdreq = ie_getpr & round > 2;
 assign pr_fifo_rdreq = (vready == GET_SUM) & (n_ie_left > 0) & (round > 2);
 assign din_fifo_rdreq = !div_fifo_full;
