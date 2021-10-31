@@ -43,14 +43,14 @@ module PageRank(
 	input [63:0] softreg_req_data,
 	
 	output        softreg_resp_valid,
-	output [63:0] softreg_resp_data,
+	output [63:0] softreg_resp_data
 
-	input [31:0] count0,
-	input [31:0] count1,
-	input [31:0] count2
+	//input [31:0] count0,
+	//input [31:0] count1,
+	//input [31:0] count2
 );
 
-reg [31:0] count = 0;
+reg [63:0] count = 0;
 always @(posedge clk)
 	count <= count + 1;
 
@@ -73,7 +73,7 @@ reg [7:0] pr_state = 0;
 reg init_din = 0;
 reg init_div_over = 0;
 reg din = 0;
-wire dvalid = init_din | din;
+wire dvalid = init_din || din;
 reg dset = 0;
 reg [INT_W-1:0] dividend;
 reg [INT_W/2-1:0] divisor;
@@ -248,19 +248,19 @@ always @(*) begin
 
 	rready_m = 1;
 
-	v_rready = rvalid_m & (rid_m == 0);
+	v_rready = rvalid_m && (rid_m == 0);
 	v_rdata = rdata_m;
 	v_odata_req = !vert_fifo_full;
 	vert_fifo_wrreq = v_oready;
 	vert_fifo_in = v_odata;
 
-	ie_rready = rvalid_m & (rid_m == 1);
+	ie_rready = rvalid_m && (rid_m == 1);
 	ie_rdata = rdata_m;
 	ie_odata_req = !inedge_fifo_full;
 	inedge_fifo_wrreq = ie_oready;
 	inedge_fifo_in = ie_odata;
 
-	pr_rready = rvalid_m & (rid_m == 2);
+	pr_rready = rvalid_m && (rid_m == 2);
 	pr_rdata = rdata_m;
 	// this is fine because we only request a read when fifo !full
 	pr_fifo_wrreq = pr_rready;
@@ -269,11 +269,11 @@ always @(*) begin
     din_fifo_wrreq = vdone;
 	din_fifo_in =  { pr_dividend, n_outedge0}; 
 
-	div_fifo_wrreq = dout & init_div_over;
+	div_fifo_wrreq = dout && init_div_over;
 	div_fifo_in = quotient;
 
 	// for debug
-	/* if (!reads_done &!print_done & wb_vcount + 1 == n_vertices) begin */
+	/* if (!reads_done &&!print_done && wb_vcount + 1 == n_vertices) begin */
 	/* 	arid_m = 3; */
 	/* 	arlen_m = 0; */
 	/* 	arvalid_m = 1; */
@@ -286,19 +286,19 @@ always @(*) begin
 			araddr_m = v_addr;
 			arlen_m = 0;
 			// only request reads when buffer is ready to accept data
-			arvalid_m = !v_oready & vert_to_fetch > 0;
+			arvalid_m = !v_oready && (vert_to_fetch > 0);
 		end
 		READ_INEDGES: begin
 			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			arvalid_m = round != 2 & !ie_oready & ie_to_fetch > 0 & ie_batch > 0 & !inedge_fifo_full;
+			arvalid_m = (round != 2) && !ie_oready && (ie_to_fetch > 0) && (ie_batch > 0) && !inedge_fifo_full;
 		end
 		READ_PR: begin
 			arid_m = 2;
 			araddr_m = pr_raddr;
 			arlen_m = 0;
-			arvalid_m = !pr_fifo_full & !inedge_fifo_empty & pr_pending;
+			arvalid_m = !pr_fifo_full && !inedge_fifo_empty && pr_pending;
 		end
 	endcase
 	/* end */
@@ -338,6 +338,33 @@ reg [63:0] sr_resp_data = 0;
 assign softreg_resp_valid = sr_resp_valid;
 assign softreg_resp_data = sr_resp_data;
 
+reg [31:0] edge_cnt = 0;
+reg [31:0] edge_fetched = 0;
+reg [31:0] edge_to_fetch = 0;
+
+// vertex stage signals
+reg [1:0] vready = 0;
+reg [1:0] vfirst = 1;
+
+// in-edge stage signals
+wire ie_getpr = arvalid_m && arready_m && (arid_m == 2);
+
+localparam WAIT_VERT = 0;
+localparam GET_VERT = 1;
+localparam GET_SUM = 2;
+
+assign vert_fifo_rdreq = (vready == GET_VERT) && !vfirst;
+assign inedge_fifo_rdreq = ie_getpr && round > 2;
+assign pr_fifo_rdreq = (vready == GET_SUM) && (n_ie_left > 0) && (round > 2);
+assign din_fifo_rdreq = !div_fifo_full;
+assign div_fifo_rdreq = wbready;
+
+// counts
+reg [31:0] v_oready_cnt = 0;
+reg [31:0] ie_oready_cnt = 0;
+reg [31:0] pr_fifo_cnt = 0;
+reg [31:0] din_fifo_cnt = 0;
+ 
 // temp debugging
 reg [63:0] v_counter = 0;
 reg [63:0] ie_counter = 0;
@@ -345,9 +372,12 @@ reg [63:0] pr_counter = 0;
 reg [63:0] v_zero = 0;
 reg [63:0] ie_zero = 0;
 
+reg [63:0] has_waited = 0;
+reg [63:0] rst_called = 0;
+
 always @(posedge clk) begin
-	sr_resp_valid <= softreg_req_valid & !softreg_req_isWrite;
-	if (softreg_req_valid & !softreg_req_isWrite) begin
+	sr_resp_valid <= softreg_req_valid && !softreg_req_isWrite;
+	if (softreg_req_valid && !softreg_req_isWrite) begin
 		case (softreg_req_addr)
 			 32'h00: sr_resp_data <= n_vertices;
 			 32'h08: sr_resp_data <= n_inedges;
@@ -390,10 +420,17 @@ always @(posedge clk) begin
 			 32'h130: sr_resp_data <= pr_waddr;  
 			 32'h138: sr_resp_data <= wbready;  
 			 32'h140: sr_resp_data <= has_waited;  
-			 32'h148: sr_resp_data <= pr_pending;  
+			 32'h148: sr_resp_data <= v_bounds;
 			 32'h150: sr_resp_data <= div_fifo_empty;  
 			 32'h158: sr_resp_data <= din_fifo_empty;  
 			 32'h160: sr_resp_data <= pr_fifo_empty;  
+			 32'h168: sr_resp_data <= init_din;  
+			 32'h170: sr_resp_data <= next_run;  
+			 32'h178: sr_resp_data <= count;  
+			 32'h180: sr_resp_data <= READ_VERT;
+			 32'h188: sr_resp_data <= ie_batch;  
+			 32'h190: sr_resp_data <= ie_bounds;  
+			 32'h198: sr_resp_data <= ie_base;  
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -405,30 +442,29 @@ will keep performing random reads
 */
 // TODO add rst
 
-reg has_waited = 0;
-
 always @(posedge clk) begin
 
 	case(pr_state)
 		// wait for start of each round
 		WAIT: begin
-			has_waited <= 1;
+			has_waited <= 64'd1;
+
 			v_addr <= v_base_addr;
 			vert_to_fetch <= n_vertices;
-			v_base <= 0;
-			v_bounds <= 8; // TODO handle < 4 for total vertices (not critical)
+			v_base <= 8'd0;
+			v_bounds <= 8'd8; // TODO handle < 4 for total vertices (not critical)                    
 
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
 			// TODO issues with Buffer 1-cycle latency when reading multiple rounds
 			// can use more batches when Buffer can accept adjacent reads
-			ie_batch <= 1;
+			ie_batch <= 4'd1;
 			ie_base <= ie_base_addr[5:3];
 			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
 
 			if (round == 0) begin
-				if ((softreg_req_valid & softreg_req_isWrite & softreg_req_addr == `DONE_READ_PARAMS)
-						| next_run) begin
+				if (((softreg_req_valid && softreg_req_isWrite && softreg_req_addr) == `DONE_READ_PARAMS)
+						|| next_run) begin
 
 					// for debugging
 					$display("n_vertices: %0d", n_vertices);
@@ -448,9 +484,9 @@ always @(posedge clk) begin
 				if (round == total_rounds+1) begin
                 	if (total_runs == 0) begin
 						$display("Cycle Counts:");
-						$display("Read vert: %0d", count0);
-						$display("Read ie vert: %0d", count1);
-						$display("Read prs: %0d", count2);
+						//$display("Read vert: %0d", count0);
+						//$display("Read ie vert: %0d", count1);
+						//$display("Read prs: %0d", count2);
 						$display("Total cycles: %0d", count);
 						$display("--------------------------------");
 						$display("v_oready_cnt = %0d", v_oready_cnt);
@@ -474,7 +510,7 @@ always @(posedge clk) begin
 					if (dout) begin
 						init_val <= quotient;
 						$display("init_val: %0b, %0d", quotient, quotient);
-						pr_state <= READ_VERT;
+						//pr_state <= READ_VERT;
 						round <= round + 1;
 						init_div_over <= 1;
 						/* $display("\n*** Round 1: quotient is %b, remainder %b ***\n", */ 
@@ -483,7 +519,7 @@ always @(posedge clk) begin
 				end
 				// all other rounds
 				else begin
-					pr_state <= READ_VERT;
+					//pr_state <= READ_VERT;
 					round <= round + 1;
 					$display("\n*** Starting Round: %0d ***", round-1);
 				end
@@ -491,10 +527,10 @@ always @(posedge clk) begin
 		end
 		READ_VERT: begin
 			// read in up to 4 (n_in_edge,n_out_edge) pairs in one read
-			if (arready_m & arvalid_m) begin
+			if (arready_m && arvalid_m) begin
 				v_addr <= v_addr + 64;
 				v_base <= 0;
-				v_bounds <= vert_to_fetch < 512/(INT_W*2) ? vert_to_fetch : 512/(INT_W*2);
+				v_bounds <= vert_to_fetch < 512/(INT_W*2) ? vert_to_fetch[7:0] : 512/(INT_W*2);
 
 				v_counter <= v_counter + 1;
 
@@ -504,17 +540,18 @@ always @(posedge clk) begin
 				end
 				else vert_to_fetch <= vert_to_fetch - 512/(INT_W*2);
 
-				pr_state <= READ_INEDGES;
+				//pr_state <= READ_INEDGES;
 			end  
 			else if (!arvalid_m)
-				pr_state <= READ_INEDGES;
+				$display("tmp");
+				//pr_state <= READ_INEDGES;
 		end
 		READ_INEDGES: begin
-			if (arready_m & arvalid_m) begin
+			if (arready_m && arvalid_m) begin
 				ie_addr <= ie_addr[5:3] == 0 ? ie_addr+64 
 						 	: ie_addr+64-(ie_addr[5:3] << 3);
 				ie_base <= ie_addr[5:3];
-				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
+				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch[7:0] : 512/INT_W;
 
 				ie_counter <= ie_counter + 1;
 
@@ -527,49 +564,52 @@ always @(posedge clk) begin
 
 				/* ie_batch <= ie_batch - 1; */
 
-				pr_state <= READ_PR;
+				//pr_state <= READ_PR;
 			end
 			else if (!arvalid_m)
-				pr_state <= READ_PR;
+				$display("tmp");
+				//pr_state <= READ_PR;
 		end
 		READ_PR: begin
 			if (wait_priority)
-				pr_state <= WAIT;
+				$display("tmp");
+				//pr_state <= WAIT;
 			else if (vert_fifo_empty)
-				pr_state <= READ_VERT;
+				$display("tmp");
+				//pr_state <= READ_VERT;
 			else if (inedge_fifo_empty)
-				pr_state <= READ_INEDGES;
-			else if ((arready_m & arvalid_m) | !arvalid_m) begin
-				pr_state <= CONTROL;
-				if (arready_m & arvalid_m)
+				$display("tmp");
+				//pr_state <= READ_INEDGES;
+			else if ((arready_m && arvalid_m) || !arvalid_m) begin
+				//pr_state <= CONTROL;
+				if (arready_m && arvalid_m)
 					pr_counter <= pr_counter + 1;
 			end
 		end
 		CONTROL: begin
-			if (vert_to_fetch > 0 & !v_oready)
-				pr_state <= READ_VERT;
-			else if (ie_to_fetch > 0 & !ie_oready)
-				pr_state <= READ_INEDGES;
+			if ((vert_to_fetch > 0) && !v_oready)
+				$display("tmp");
+				//pr_state <= READ_VERT;
+			else if ((ie_to_fetch > 0) && !ie_oready)
+				$display("tmp");
+				//pr_state <= READ_INEDGES;
 			else
-				pr_state <= READ_PR;
+				$display("tmp");
+				//pr_state <= READ_PR;
 		end
 	endcase
 
 	if (rst)
-		pr_state <= WAIT;
+		rst_called <= 1;
+		//pr_state <= WAIT;
 end
-
-reg [31:0] v_oready_cnt = 0;
-reg [31:0] ie_oready_cnt = 0;
-reg [31:0] pr_fifo_cnt = 0;
-reg [31:0] din_fifo_cnt = 0;
 
 // debug signals
 always @(posedge clk) begin
-	if (v_oready & !vert_fifo_full) v_oready_cnt <= v_oready_cnt + 1;
-	if (ie_oready & !inedge_fifo_full) ie_oready_cnt <= ie_oready_cnt + 1;
-	if (pr_fifo_wrreq & !pr_fifo_full) pr_fifo_cnt <= pr_fifo_cnt + 1;
-	if (din_fifo_wrreq & !din_fifo_full) din_fifo_cnt <= din_fifo_cnt + 1;
+	if (v_oready && !vert_fifo_full) v_oready_cnt <= v_oready_cnt + 1;
+	if (ie_oready && !inedge_fifo_full) ie_oready_cnt <= ie_oready_cnt + 1;
+	if (pr_fifo_wrreq && !pr_fifo_full) pr_fifo_cnt <= pr_fifo_cnt + 1;
+	if (din_fifo_wrreq && !din_fifo_full) din_fifo_cnt <= din_fifo_cnt + 1;
 end
 
 // FIFO for vertex in-edges offset + # out-edges stored as a pair
@@ -663,32 +703,14 @@ AddrParser #(
 	pr_odata
 );
 
-reg [31:0] edge_cnt = 0;
-reg [31:0] edge_fetched = 0;
-reg [31:0] edge_to_fetch = 0;
-
-reg [1:0] vready = 0;
-reg [1:0] vfirst = 1;
-
-wire ie_getpr = arvalid_m & arready_m & arid_m == 2;
-
-localparam WAIT_VERT = 0;
-localparam GET_VERT = 1;
-localparam GET_SUM = 2;
-
-assign vert_fifo_rdreq = vready == GET_VERT & !vfirst;
-assign inedge_fifo_rdreq = ie_getpr & round > 2;
-assign pr_fifo_rdreq = (vready == GET_SUM) & (n_ie_left > 0) & (round > 2);
-assign din_fifo_rdreq = !div_fifo_full;
-assign div_fifo_rdreq = wbready;
-
 // VERT: read 2 things to get # i-e, store both # oe, wait for PR reads
 always @(posedge clk) begin
 	case(vready)
 		WAIT_VERT: begin
 			if (pr_state == WAIT) begin
-				if (round < 2 & init_div_over)
-					vready <= GET_VERT;
+				if (round < 2)
+					if (init_div_over)
+						vready <= GET_VERT;
 				else begin
 					vready <= GET_VERT;
 					pr_sum <= 0;
@@ -698,7 +720,7 @@ always @(posedge clk) begin
 		// read vertex to process, it's starting offset
 		GET_VERT: begin
 			vdone <= 0;
-			if (!vert_fifo_empty | v_vcount == n_vertices-1) begin
+			if (!vert_fifo_empty || (v_vcount == n_vertices-1)) begin
 				// handle first vertex
 				if (v_vcount == 0) begin
 					if (vfirst) begin
@@ -741,7 +763,7 @@ always @(posedge clk) begin
 			end
 			else begin
 				/* $display("VERTEX %0d", v_vcount); */
-				// put sum into divider, when divider is done it writesback
+				// put sum into divider, when divider is done it writes back
 				vdone <= 1;
 				// start processing next vertex
 				vready <= GET_VERT;
@@ -761,17 +783,17 @@ end
 
 // INEDGES: read old PR, feed into results queue for VERT stage
 always @(posedge clk) begin
-	if (!pr_pending & !inedge_fifo_empty & !pr_fifo_full) begin
+	if (!pr_pending && !inedge_fifo_empty && !pr_fifo_full) begin
 		pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
    		pr_pending <= 1;
 	end
-	else if (arready_m & arvalid_m & arid_m == 2)
+	else if (arready_m && arvalid_m && (arid_m == 2))
 		pr_pending <= 0;
 end
 
 // DIV: receive #oe and pr sum, divide, put into wb fifo
 always @(posedge clk) begin
-	if (!din_fifo_empty & !div_fifo_full) begin
+	if (!din_fifo_empty && !div_fifo_full) begin
 		din <= 1;
 		dividend <= din_fifo_out[INT_W*2-1:INT_W];
 		divisor <= din_fifo_out[INT_W-1:0];
@@ -780,7 +802,7 @@ always @(posedge clk) begin
 	else din <= 0;
 
 	// inputs for computing the initial PR value
-	if (round == 0 & softreg_req_valid & softreg_req_isWrite) begin
+	if ((round == 0) && softreg_req_valid && softreg_req_isWrite) begin
 		if (softreg_req_addr == `DONE_READ_PARAMS) begin
 			dividend <= 1 << PREC;
 			divisor <= n_vertices;
@@ -794,8 +816,8 @@ end
 
 // for debug
 /* always @(posedge clk) begin */
-/* 	if (!reads_done &!print_done & wb_vcount + 1 == n_vertices) begin */
-/* 		if (rid_m == 3 & rvalid_m) begin */
+/* 	if (!reads_done &&!print_done && wb_vcount + 1 == n_vertices) begin */
+/* 		if (rid_m == 3 && rvalid_m) begin */
 /* 			line0 <= rdata_m; */
 /* 			/1* $display("line: %0b", rdata_m); *1/ */
 /* 			reads_done <= 1; */
@@ -807,7 +829,7 @@ end
 /* generate */
 /* 	for (p=0; p<8; p = p+1) begin */
 /* 		always @(posedge clk) begin */
-/* 			if (reads_done & !print_done & wb_vcount + 1 == n_vertices) begin */
+/* 			if (reads_done && !print_done && wb_vcount + 1 == n_vertices) begin */
 /* 				$display("PR %0d = %0b", p+2, line0[511-p*64-1:448-64*p]); */
 /* 				print_done <= 1; */
 /* 				reads_done <= 0; */
@@ -816,7 +838,7 @@ end
 /* 	end */
 	/* for (p=0; p<2; p = p+1) begin */
 	/* 	always @(posedge clk) begin */
-	/* 		if (reads_done & !print_done & wb_vcount + 1 == n_vertices) begin */
+	/* 		if (reads_done && !print_done && wb_vcount + 1 == n_vertices) begin */
 	/* 			$display("PR %0d = %0b", p+8, line1[511-p*64-1:448-64*p]); */
 	/* 			print_done <= 1; */
 	/* 		end */
@@ -826,7 +848,7 @@ end
 
 // WB: receive from DIV and WB fifo, writeback new PR
 always @(posedge clk) begin
-	if (wbready & !div_fifo_empty) begin
+	if (wbready && !div_fifo_empty) begin
 		wbready <= 0;
 		// wvalue = div_fifo_out
 		pr_waddr <= base_pr_waddr + (wb_vcount << 3);
@@ -836,7 +858,7 @@ always @(posedge clk) begin
 
 	if (pr_awvalid) pr_awvalid <= 0;
 
-	if (!wbready & wvalid_m & wready_m) begin
+	if (!wbready && wvalid_m && wready_m) begin
 		/* $display("--------- WRITING %0b to 0x%0h ---------", */
 		/* 	   		pagerank, pr_waddr); */
 		wbready <= 1;
@@ -867,7 +889,7 @@ always @(posedge clk) begin
 		wait_priority <= 0;
 
 	// parameter initialization; need here because modifies base_pr addresses
-	if (softreg_req_valid & softreg_req_isWrite) begin
+	if (softreg_req_valid && softreg_req_isWrite) begin
 		case(softreg_req_addr)
 			`N_VERT: n_vertices <= softreg_req_data;
 			`N_INEDGES: n_inedges <= softreg_req_data;
