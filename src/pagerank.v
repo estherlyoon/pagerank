@@ -755,9 +755,9 @@ always @(posedge clk) begin
 		GET_VERT: begin
 			vdone <= 0;
 			if (!vert_fifo_empty || (v_vcount == n_vertices-1)) begin
-				get_vert_cnt <= get_vert_cnt + 1;
 				// handle first vertex
 				if (v_vcount == 0) begin
+					get_vert_cnt <= get_vert_cnt + 1;
 					if (vfirst) begin
 						n_outedge0 <= vert_fifo_out[INT_W-1:0];
 						vfirst <= 0;
@@ -776,10 +776,12 @@ always @(posedge clk) begin
 					// handle last vertex
 					if (v_vcount == n_vertices-1)
 						n_ie_left <= n_inedges - ie_offset;
-					else
+					else begin
+						get_vert_cnt <= get_vert_cnt + 1;
 						n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W] - ie_offset;
+						ie_offset <= vert_fifo_out[INT_W*2-1:INT_W];
+					end
 
-					ie_offset <= vert_fifo_out[INT_W*2-1:INT_W];
 					vready <= GET_SUM;
 				end
 			end
@@ -804,7 +806,7 @@ always @(posedge clk) begin
 				vready <= GET_VERT;
 
 				if (v_vcount+1 == n_vertices)
-					v_vcount <= v_vcount;//0;
+					v_vcount <= 0;
 				else
 					v_vcount <= v_vcount + 1;
 			end
