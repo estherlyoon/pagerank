@@ -378,8 +378,8 @@ reg [63:0] ie_counter = 0;
 reg [63:0] pr_counter = 0;
 reg [63:0] v_zero = 0;
 reg [63:0] ie_zero = 0;
-
 reg rst_called = 0;
+reg [31:0] get_vert_cnt = 0;
 
 always @(posedge clk) begin
 	sr_resp_valid <= softreg_req_valid && !softreg_req_isWrite;
@@ -437,9 +437,13 @@ always @(posedge clk) begin
 			 32'h188: sr_resp_data <= ie_batch;  
 			 32'h190: sr_resp_data <= ie_bounds;  
 			 32'h198: sr_resp_data <= ie_base;  
-			 32'h1a0: sr_resp_data <= 555;  
+			 32'h1a0: sr_resp_data <= 5; // TODO
 			 32'h1a8: sr_resp_data <= INT_W;  
 			 32'h1b0: sr_resp_data <= pr_sum;  
+			 32'h1b8: sr_resp_data <= v_oready_cnt;  
+			 32'h1c0: sr_resp_data <= ie_oready_cnt;
+			 32'h1c8: sr_resp_data <= pr_fifo_cnt;  
+			 32'h1d8: sr_resp_data <= din_fifo_cnt;  
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -500,7 +504,10 @@ always @(posedge clk) begin
 						$display("ie_oready_cnt = %0d", ie_oready_cnt);
 						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
 						$display("din_fifo_cnt = %0d", din_fifo_cnt);
+						$display("get_vert_cnt = %0d", get_vert_cnt);
+						$display("v_vcount = %0d", v_vcount);
 						$display("Done.");
+						$finish();
 					end
 					else begin
 						// start another run on n rounds
@@ -703,8 +710,6 @@ AddrParser #(
 	pr_odata
 );
 
-reg [31:0] get_vert_cnt = 0;
-
 // VERT: read 2 things to get # i-e, store both # oe, wait for PR reads
 always @(posedge clk) begin
 	case(vready)
@@ -721,10 +726,9 @@ always @(posedge clk) begin
 		end
 		// read vertex to process, it's starting offset
 		GET_VERT: begin
-			// TODO signal idea: last n_ie_left
 			vdone <= 0;
-			get_vert_cnt <= get_vert_cnt + 1;
 			if (!vert_fifo_empty || (v_vcount == n_vertices-1)) begin
+				get_vert_cnt <= get_vert_cnt + 1;
 				// handle first vertex
 				if (v_vcount == 0) begin
 					if (vfirst) begin
@@ -773,7 +777,7 @@ always @(posedge clk) begin
 				vready <= GET_VERT;
 
 				if (v_vcount+1 == n_vertices)
-					v_vcount <= 0;
+					v_vcount <= v_vcount;//0;
 				else
 					v_vcount <= v_vcount + 1;
 			end
