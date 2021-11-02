@@ -23,13 +23,13 @@ reg [7:0] buffer_elems = 0;
 reg [7:0] rdptr;
 
 assign odata = buffer[rdptr];
-assign oready = buffer_elems != 0;
+assign oready = (buffer_elems != 0);
 
 genvar i;
 generate
 for (i = 1; i <= MAX_ELEMS; i = i + 1)begin
 	always @(posedge clk) begin
-		if (rready & !oready) begin
+		if (rready && !oready) begin
 			/* $display("buffer[%d] = %h", MAX_ELEMS-i, rdata[WIDTH*i-1:WIDTH(i-1)]); */
 			buffer[MAX_ELEMS-i] <= rdata[WIDTH*i-1:WIDTH*(i-1)];
 		end
@@ -38,12 +38,12 @@ end
 endgenerate
 
 always @(posedge clk) begin
-	if (rready & !oready) begin
-		buffer_elems <= bounds - base < MAX_ELEMS ? bounds - base : MAX_ELEMS;
-		rdptr <= base < MAX_ELEMS ? base : 0;
+	if (rready && !oready) begin
+		buffer_elems <= ((bounds - base) < MAX_ELEMS) ? (bounds - base) : MAX_ELEMS;
+		rdptr <= (base < MAX_ELEMS) ? base : 0;
 	end
 
-	if (oready & odata_req) begin
+	if (oready && odata_req) begin
 		buffer_elems <= buffer_elems - 1;
 		rdptr <= rdptr + 1;
 	end

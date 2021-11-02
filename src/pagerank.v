@@ -109,6 +109,10 @@ reg [7:0] v_bounds;
 wire v_oready;
 wire [INT_W*2-1:0] v_odata;
 
+// tmp debugging signals
+reg [31:0] inbuffer_cnt = 0;
+reg [31:0] outbuffer_cnt = 0;
+
 ReadBuffer #(
 	.FULL_WIDTH(512),
 	.WIDTH(INT_W*2)
@@ -122,6 +126,11 @@ ReadBuffer #(
 	v_oready, // fed into FIFO
 	v_odata // feed into FIFO
 );
+
+always @(posedge clk) begin
+	if (v_odata_req)
+		outbuffer_cnt <= outbuffer_cnt + 1;
+end
 
 reg ie_rready;
 reg [511:0] ie_rdata;
@@ -240,9 +249,13 @@ reg [INT_W-1:0] pr_sum = 0;
 reg [INT_W-1:0] pagerank;
 wire [INT_W-1:0] pr_dividend = pr_sum;
 
+// set when something read to buffers
+reg v_pending = 0;
+reg ie_pending = 0;
+
 // set when pr address set
 reg pr_pending = 0;
-   
+
 // read interface
 always @(*) begin
 	arid_m = 0;
@@ -274,7 +287,7 @@ always @(*) begin
 	pr_fifo_in = pr_odata;
 
     din_fifo_wrreq = vdone;
-	din_fifo_in =  { pr_dividend, n_outedge0}; 
+	din_fifo_in =  { pr_dividend, n_outedge0 }; 
 
 	div_fifo_wrreq = dout && init_div_over;
 	div_fifo_in = quotient;
@@ -293,13 +306,16 @@ always @(*) begin
 			araddr_m = v_addr;
 			arlen_m = 0;
 			// only request reads when buffer is ready to accept data
-			arvalid_m = !v_oready && (vert_to_fetch > 0);
+			// OH WAIT can this make rreq when last one isn't ready yet?
+			// because v_oready not set until thing is actually read omg
+			arvalid_m = !v_pending && !v_oready && (vert_to_fetch > 0);
 		end
 		READ_INEDGES: begin
 			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			arvalid_m = (round != 2) && !ie_oready && (ie_to_fetch > 0) && (ie_batch > 0) && !inedge_fifo_full;
+			arvalid_m = (round != 2) && !ie_pending && !ie_oready && (ie_to_fetch > 0) 
+						&& (ie_batch > 0) && !inedge_fifo_full;
 		end
 		READ_PR: begin
 			arid_m = 2;
@@ -437,13 +453,16 @@ always @(posedge clk) begin
 			 32'h188: sr_resp_data <= ie_batch;  
 			 32'h190: sr_resp_data <= ie_bounds;  
 			 32'h198: sr_resp_data <= ie_base;  
-			 32'h1a0: sr_resp_data <= 5; // TODO
+			 32'h1a0: sr_resp_data <= get_vert_cnt; // TODO
 			 32'h1a8: sr_resp_data <= INT_W;  
 			 32'h1b0: sr_resp_data <= pr_sum;  
 			 32'h1b8: sr_resp_data <= v_oready_cnt;  
 			 32'h1c0: sr_resp_data <= ie_oready_cnt;
 			 32'h1c8: sr_resp_data <= pr_fifo_cnt;  
 			 32'h1d8: sr_resp_data <= din_fifo_cnt;  
+			 32'h1e0: sr_resp_data <= outbuffer_cnt;  
+			 // TODO fifo_full signals
+			 // stuff from buffer?
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -456,6 +475,11 @@ will keep performing random reads
 // TODO add rst
 
 always @(posedge clk) begin
+
+	if (v_rready)
+		v_pending <= 0;
+	if (ie_rready)
+		ie_pending <= 0;
 
 	case(pr_state)
 		// wait for start of each round
@@ -545,7 +569,9 @@ always @(posedge clk) begin
 				v_addr <= v_addr + 64;
 				v_base <= 0;
 				v_bounds <= vert_to_fetch < 512/(INT_W*2) ? vert_to_fetch[7:0] : 512/(INT_W*2);
+				v_pending <= 1;
 
+				// tmp debugging
 				v_counter <= v_counter + 1;
 
 				if (vert_to_fetch <= 512/(INT_W*2))	begin
@@ -567,6 +593,7 @@ always @(posedge clk) begin
 				ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch[7:0] : 512/INT_W;
 
 				ie_counter <= ie_counter + 1;
+				ie_pending <= 1;
 
 				if (ie_to_fetch <= 512/INT_W) begin
 					ie_to_fetch <= 0;
