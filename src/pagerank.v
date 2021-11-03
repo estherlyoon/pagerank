@@ -286,10 +286,10 @@ always @(*) begin
 	pr_fifo_wrreq = pr_rready;
 	pr_fifo_in = pr_odata;
 
-    din_fifo_wrreq = vdone;
+    din_fifo_wrreq = vdone && !din_fifo_full;
 	din_fifo_in =  { pr_dividend, n_outedge0 }; 
 
-	div_fifo_wrreq = dout && init_div_over;
+	div_fifo_wrreq = dout && init_div_over && !div_fifo_full;
 	div_fifo_in = quotient;
 
 	// for debug
@@ -803,12 +803,14 @@ always @(posedge clk) begin
 				// put sum into divider, when divider is done it writes back
 				vdone <= 1;
 				// start processing next vertex
-				vready <= GET_VERT;
+				if (!din_fifo_full) begin
+					vready <= GET_VERT;
+					if (v_vcount+1 == n_vertices)
+						v_vcount <= 0;
+					else
+						v_vcount <= v_vcount + 1;
+				end
 
-				if (v_vcount+1 == n_vertices)
-					v_vcount <= 0;
-				else
-					v_vcount <= v_vcount + 1;
 			end
 		end
 	endcase
