@@ -548,10 +548,20 @@ always @(posedge clk) begin
 						$display("--------------------------------");
 						$display("v_oready_cnt = %0d", v_oready_cnt);
 						$display("ie_oready_cnt = %0d", ie_oready_cnt);
+						$display("get_vert_cnt = %0d", get_vert_cnt);
+						$display("v_vcount = %0d\n", v_vcount);
+						$display("div_read_cnt = %0d", div_read_cnt);
+						$display("din_read_cnt = %0d", din_read_cnt);
+						$display();
 						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
 						$display("din_fifo_cnt = %0d", din_fifo_cnt);
-						$display("get_vert_cnt = %0d", get_vert_cnt);
-						$display("v_vcount = %0d", v_vcount);
+						$display("div_fifo_cnt = %0d", div_fifo_cnt);
+						$display("pr_fifo_cnt = %0d", pr_fifo_cnt);
+						$display("ie_wcnt = %0d", ie_wcnt);
+						$display("din_wcnt = %0d", din_wcnt);
+						$display("div_wcnt = %0d", div_wcnt);
+						$display("pr_wcnt = %0d", pr_wcnt);
+						$display("vdone_cnt = %0d", vdone_cnt);
 						$display("Done.");
 						$finish();
 					end
