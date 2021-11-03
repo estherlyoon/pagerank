@@ -112,6 +112,7 @@ wire [INT_W*2-1:0] v_odata;
 // tmp debugging signals
 reg [31:0] inbuffer_cnt = 0;
 reg [31:0] outbuffer_cnt = 0;
+reg [31:0] txn_cnt = 0;
 
 ReadBuffer #(
 	.FULL_WIDTH(512),
@@ -246,10 +247,9 @@ reg [63:0] base_pr_raddr;
 reg [63:0] base_pr_waddr;
 
 // PageRank logic control signals
-// I think it can always be ready for now (only need awvalid logic)
-reg pr_wvalid = 1;
+reg pr_wvalid = 0;
 reg pr_awvalid = 0;
-reg wbready = 1;
+reg wb_pending = 0;
 // indicates whether pr sum is done for a vertex
 reg vdone = 0;
 reg [INT_W-1:0] v_vcount = 0;
@@ -389,11 +389,16 @@ localparam WAIT_VERT = 0;
 localparam GET_VERT = 1;
 localparam GET_SUM = 2;
 
+// writing back signals
+localparam TRANSACTION = 0;
+localparam WRITE_DONE = 1;
+reg wb_state = TRANSACTION;
+
 assign vert_fifo_rdreq = vready == GET_VERT && (!vfirst || v_vcount == 0);
 assign inedge_fifo_rdreq = ie_getpr && round > 2;
 assign pr_fifo_rdreq = vready == GET_SUM && n_ie_left > 0 && round > 2;
 assign din_fifo_rdreq = !div_fifo_full;
-assign div_fifo_rdreq = wbready;
+assign div_fifo_rdreq = !wb_pending;
 
 // counts
 reg [31:0] v_oready_cnt = 0;
@@ -453,7 +458,7 @@ always @(posedge clk) begin
 			 32'h120: sr_resp_data <= dividend;
 			 32'h128: sr_resp_data <= divisor;
 			 32'h130: sr_resp_data <= pr_waddr;
-			 32'h138: sr_resp_data <= wbready;
+			 32'h138: sr_resp_data <= wb_pending;
 			 32'h140: sr_resp_data <= last_quotient;
 			 32'h148: sr_resp_data <= v_bounds;
 			 32'h150: sr_resp_data <= div_fifo_empty;
@@ -485,6 +490,7 @@ always @(posedge clk) begin
 			 32'h228: sr_resp_data <= div_fifo_full;
 			 32'h230: sr_resp_data <= pr_fifo_full;
 			 32'h238: sr_resp_data <= vdone_cnt;
+			 32'h240: sr_resp_data <= txn_cnt;
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -893,21 +899,31 @@ always @(posedge clk) begin
 end
 
 // WB: receive from DIV and WB fifo, writeback new PR
+// invariant: only write back one result at a time (wb_pending = 1)
 always @(posedge clk) begin
-	if (wbready && !div_fifo_empty) begin
-		wbready <= 0;
-		// wvalue = div_fifo_out
+
+	if (!wb_pending && !div_fifo_empty) begin
+		wb_pending <= 1;
+		pagerank <= div_fifo_out;
+
 		pr_waddr <= base_pr_waddr + (wb_vcount << 3);
 		pr_awvalid <= 1;
-		pagerank <= div_fifo_out;
+		pr_wvalid <= 1;
+
+		// tmp debugging
+		txn_cnt <= txn_cnt + 1;
 	end
 
-	if (!wbready && wvalid_m && wready_m) begin
-		/* $display("--------- WRITING %0b to 0x%0h ---------", */
-		/* 	   		pagerank, pr_waddr); */
-		wbready <= 1;
+	if (awvalid_m && awready_m)
  		pr_awvalid <= 0;
 
+	if (wvalid_m && wready_m)
+ 		pr_wvalid <= 0;
+
+	if (bvalid_m) begin
+		/* $display("--------- WRITING %0b to 0x%0h ---------", */
+		/* 	   		pagerank, pr_waddr); */
+		wb_pending <= 0;
 		if (wb_vcount + 1 == n_vertices) begin
 			$display("*** Done with round %0d of PR ***", round-2);
 			base_pr_waddr <= base_pr_raddr;
