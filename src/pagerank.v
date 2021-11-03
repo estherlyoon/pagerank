@@ -127,9 +127,21 @@ ReadBuffer #(
 	v_odata // feed into FIFO
 );
 
+// tmp debug
+reg [31:0] div_read_cnt = 0;
+reg [31:0] din_read_cnt = 0;
+reg [31:0] ie_wcnt = 0;
+reg [31:0] pr_wcnt = 0;
+reg [31:0] din_wcnt = 0;
+reg [31:0] div_wcnt = 0;
+reg [31:0] div_fifo_cnt = 0;
 always @(posedge clk) begin
 	if (v_odata_req)
 		outbuffer_cnt <= outbuffer_cnt + 1;
+	if (din_fifo_rdreq && !din_fifo_empty)
+		din_read_cnt <= din_read_cnt + 1;
+	if (div_fifo_rdreq && !div_fifo_empty)
+		div_read_cnt <= div_read_cnt + 1;
 end
 
 reg ie_rready;
@@ -376,7 +388,7 @@ localparam WAIT_VERT = 0;
 localparam GET_VERT = 1;
 localparam GET_SUM = 2;
 
-assign vert_fifo_rdreq = (vready == GET_VERT) && (!vfirst || (v_vcount == 0)); // TODO test
+assign vert_fifo_rdreq = (vready == GET_VERT) && (!vfirst || (v_vcount == 0));
 assign inedge_fifo_rdreq = ie_getpr && round > 2;
 assign pr_fifo_rdreq = (vready == GET_SUM) && (n_ie_left > 0) && (round > 2);
 assign din_fifo_rdreq = !div_fifo_full;
@@ -453,7 +465,7 @@ always @(posedge clk) begin
 			 32'h188: sr_resp_data <= ie_batch;  
 			 32'h190: sr_resp_data <= ie_bounds;  
 			 32'h198: sr_resp_data <= ie_base;  
-			 32'h1a0: sr_resp_data <= get_vert_cnt; // TODO
+			 32'h1a0: sr_resp_data <= get_vert_cnt;
 			 32'h1a8: sr_resp_data <= INT_W;  
 			 32'h1b0: sr_resp_data <= pr_sum;  
 			 32'h1b8: sr_resp_data <= v_oready_cnt;  
@@ -461,8 +473,13 @@ always @(posedge clk) begin
 			 32'h1c8: sr_resp_data <= pr_fifo_cnt;  
 			 32'h1d8: sr_resp_data <= din_fifo_cnt;  
 			 32'h1e0: sr_resp_data <= outbuffer_cnt;  
-			 // TODO fifo_full signals
-			 // stuff from buffer?
+			 32'h1e8: sr_resp_data <= div_read_cnt;  
+			 32'h1f0: sr_resp_data <= din_read_cnt;  
+			 32'h1f8: sr_resp_data <= div_fifo_cnt;  
+			 32'h200: sr_resp_data <= pr_wcnt;  
+			 32'h208: sr_resp_data <= din_wcnt;  
+			 32'h210: sr_resp_data <= div_wcnt;  
+			 32'h218: sr_resp_data <= ie_wcnt;  
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -644,6 +661,11 @@ always @(posedge clk) begin
 	if (ie_oready && !inedge_fifo_full) ie_oready_cnt <= ie_oready_cnt + 1;
 	if (pr_fifo_wrreq && !pr_fifo_full) pr_fifo_cnt <= pr_fifo_cnt + 1;
 	if (din_fifo_wrreq && !din_fifo_full) din_fifo_cnt <= din_fifo_cnt + 1;
+	if (div_fifo_wrreq && !din_fifo_full) div_fifo_cnt <= div_fifo_cnt + 1;
+	if (inedge_fifo_wrreq) ie_wcnt <= ie_wcnt + 1;
+	if (pr_fifo_wrreq) pr_wcnt <= pr_wcnt + 1;
+	if (din_fifo_wrreq) din_wcnt <= din_wcnt + 1;
+	if (div_fifo_wrreq) div_wcnt <= div_wcnt + 1;
 end
 
 // FIFO for vertex in-edges offset + # out-edges stored as a pair
@@ -884,6 +906,7 @@ end
 	/* 	end */
 	/* end */
 /* endgenerate */
+
 
 // WB: receive from DIV and WB fifo, writeback new PR
 always @(posedge clk) begin
