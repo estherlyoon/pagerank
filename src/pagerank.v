@@ -137,14 +137,15 @@ reg [31:0] din_wcnt = 0;
 reg [31:0] div_wcnt = 0;
 reg [31:0] vdone_cnt = 0;
 reg [31:0] div_fifo_cnt = 0;
-always @(posedge clk) begin
-	if (v_odata_req)
-		outbuffer_cnt <= outbuffer_cnt + 1;
-	if (din_fifo_rdreq && !din_fifo_empty)
-		din_read_cnt <= din_read_cnt + 1;
-	if (div_fifo_rdreq && !div_fifo_empty)
-		div_read_cnt <= div_read_cnt + 1;
-end
+reg [31:0] get_vert_cnt0 = 0;
+reg [31:0] get_vert_cnt1 = 0;
+reg [31:0] get_vert_cnt2 = 0;
+reg [31:0] get_vert_cnt3 = 0;
+reg [31:0] get_vert_cnt4 = 0;
+reg [31:0] get_sum_cnt = 0;
+reg [31:0] get_sum_cnt0 = 0;
+reg [31:0] get_sum_cnt1 = 0;
+
 
 reg ie_rready;
 reg [511:0] ie_rdata;
@@ -269,6 +270,15 @@ reg ie_pending = 0;
 // set when pr address set
 reg pr_pending = 0;
 
+always @(posedge clk) begin
+	if (v_odata_req)
+		outbuffer_cnt <= outbuffer_cnt + 1;
+	if (din_fifo_rdreq && !din_fifo_empty)
+		din_read_cnt <= din_read_cnt + 1;
+	if (div_fifo_rdreq && !div_fifo_empty)
+		div_read_cnt <= div_read_cnt + 1;
+end
+ 
 // read interface
 always @(*) begin
 	arid_m = 0;
@@ -319,16 +329,14 @@ always @(*) begin
 			araddr_m = v_addr;
 			arlen_m = 0;
 			// only request reads when buffer is ready to accept data
-			// OH WAIT can this make rreq when last one isn't ready yet?
-			// because v_oready not set until thing is actually read omg
-			arvalid_m = !v_pending && !v_oready && vert_to_fetch > 0;
+			arvalid_m = !v_pending && !v_oready && (vert_to_fetch > 0);
 		end
 		READ_INEDGES: begin
 			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			arvalid_m = round > 2 && !ie_pending && !ie_oready && ie_to_fetch > 0
-						&& ie_batch > 0 && !inedge_fifo_full;
+			arvalid_m = (round > 2) && !ie_pending && !ie_oready && (ie_to_fetch > 0)
+						&& (ie_batch > 0) && !inedge_fifo_full;
 		end
 		READ_PR: begin
 			arid_m = 2;
@@ -383,20 +391,19 @@ reg [1:0] vready = 0;
 reg [1:0] vfirst = 1;
 
 // in-edge stage signals
-wire ie_getpr = arvalid_m && arready_m && arid_m == 2;
+wire ie_getpr = arvalid_m && arready_m && (arid_m == 2);
 
-localparam WAIT_VERT = 0;
-localparam GET_VERT = 1;
-localparam GET_SUM = 2;
+localparam GET_VERT = 0;
+localparam GET_SUM = 1;
 
 // writing back signals
 localparam TRANSACTION = 0;
 localparam WRITE_DONE = 1;
 reg wb_state = TRANSACTION;
 
-assign vert_fifo_rdreq = vready == GET_VERT && (!vfirst || v_vcount == 0);
+assign vert_fifo_rdreq = vready == GET_VERT && (!vfirst || (v_vcount == 0));
 assign inedge_fifo_rdreq = ie_getpr && round > 2;
-assign pr_fifo_rdreq = vready == GET_SUM && n_ie_left > 0 && round > 2;
+assign pr_fifo_rdreq = (vready == GET_SUM) && (n_ie_left > 0) && (round > 2);
 assign din_fifo_rdreq = !div_fifo_full;
 assign div_fifo_rdreq = !wb_pending;
 
@@ -491,6 +498,17 @@ always @(posedge clk) begin
 			 32'h230: sr_resp_data <= pr_fifo_full;
 			 32'h238: sr_resp_data <= vdone_cnt;
 			 32'h240: sr_resp_data <= txn_cnt;
+			 32'h248: sr_resp_data <= v_pending;
+			 32'h250: sr_resp_data <= ie_pending;
+			 32'h258: sr_resp_data <= get_vert_cnt0;
+			 32'h260: sr_resp_data <= get_vert_cnt1;
+			 32'h268: sr_resp_data <= get_vert_cnt2;
+			 32'h270: sr_resp_data <= get_vert_cnt3;
+			 32'h278: sr_resp_data <= get_sum_cnt;
+			 32'h280: sr_resp_data <= get_sum_cnt0;
+			 32'h288: sr_resp_data <= get_sum_cnt1;
+			 32'h290: sr_resp_data <= get_vert_cnt4;
+			 32'h298: sr_resp_data <= pr_counter;
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -682,7 +700,7 @@ always @(posedge clk) begin
 	if (ie_oready && !inedge_fifo_full) ie_oready_cnt <= ie_oready_cnt + 1;
 	if (pr_fifo_wrreq && !pr_fifo_full) pr_fifo_cnt <= pr_fifo_cnt + 1;
 	if (din_fifo_wrreq && !din_fifo_full) din_fifo_cnt <= din_fifo_cnt + 1;
-	if (div_fifo_wrreq && !din_fifo_full) div_fifo_cnt <= div_fifo_cnt + 1;
+	if (div_fifo_wrreq && !div_fifo_full) div_fifo_cnt <= div_fifo_cnt + 1;
 	if (inedge_fifo_wrreq) ie_wcnt <= ie_wcnt + 1;
 	if (pr_fifo_wrreq) pr_wcnt <= pr_wcnt + 1;
 	if (din_fifo_wrreq) din_wcnt <= din_wcnt + 1;
@@ -784,25 +802,18 @@ AddrParser #(
 // VERT: read 2 things to get # i-e, store both # oe, wait for PR reads
 always @(posedge clk) begin
 	case(vready)
-		WAIT_VERT: begin
-			if (pr_state == WAIT) begin
-				if (round < 2)
-					if (init_div_over)
-						vready <= GET_VERT;
-				else begin
-					vready <= GET_VERT;
-					pr_sum <= 0;
-				end
-			end
-		end
 		// read vertex to process, it's starting offset
 		GET_VERT: begin
 			vdone <= 0;
+			get_vert_cnt0 <= get_vert_cnt0 + 1;
 			if (!vert_fifo_empty || (v_vcount == n_vertices-1)) begin
+				get_vert_cnt1 <= get_vert_cnt1 + 1;
 				// handle first vertex
 				if (v_vcount == 0) begin
 					get_vert_cnt <= get_vert_cnt + 1;
+					get_vert_cnt2 <= get_vert_cnt2 + 1;
 					if (vfirst) begin
+						get_vert_cnt4 <= get_vert_cnt4 + 1;
 						n_outedge0 <= vert_fifo_out[INT_W-1:0];
 						vfirst <= 0;
 					end
@@ -817,6 +828,8 @@ always @(posedge clk) begin
 					n_outedge0 <= n_outedge1;
 					n_outedge1 <= vert_fifo_out[INT_W-1:0];
 
+					get_vert_cnt3 <= get_vert_cnt3 + 1;
+					
 					// handle last vertex
 					if (v_vcount == n_vertices-1)
 						n_ie_left <= n_inedges - ie_offset;
@@ -831,9 +844,11 @@ always @(posedge clk) begin
 			end
 		end
 		GET_SUM: begin
+			get_sum_cnt <= get_sum_cnt + 1;
 			if (n_ie_left > 0) begin
+				get_sum_cnt0 <= get_sum_cnt0 + 1;
 				// fetch PR of current in-edge vertex, add it to running sum
- 				if (round == 2 | !pr_fifo_empty) begin
+ 				if (round == 2 || !pr_fifo_empty) begin
 					/* $display("\tIE -- %0d", n_ie_left); */
 					if (round == 2)
 						pr_sum <= pr_sum + init_val;
@@ -845,11 +860,13 @@ always @(posedge clk) begin
 			else begin
 				/* $display("VERTEX %0d", v_vcount); */
 				// put sum into divider, when divider is done it writes back
+				get_sum_cnt1 <= get_sum_cnt1 + 1;
 				vdone <= 1;
 				// start processing next vertex
 				if (!din_fifo_full) begin
 					vready <= GET_VERT;
-					if (v_vcount+1 == n_vertices)
+					pr_sum <= 0;
+					if (v_vcount + 1 == n_vertices)
 						v_vcount <= 0;
 					else
 						v_vcount <= v_vcount + 1;
