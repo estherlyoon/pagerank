@@ -350,7 +350,7 @@ always @(*) begin
 		end
 	end
 	else begin
-		din = !din_fifo_empty && !div_fifo_full;
+		din = din_fifo_rdreq;
 		dividend = din_fifo_out[INT_W*2-1:INT_W];
 		divisor = din_fifo_out[INT_W-1:0];
 	end
