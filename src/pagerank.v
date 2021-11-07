@@ -59,6 +59,8 @@ localparam INT_W = 64;
 localparam BYTE = 8;
 // precision of fixed-point values
 localparam PREC = 16; 
+// log depth of FIFOs
+localparam FIFO_DEPTH = 6; 
 
 // pr states
 localparam WAIT = 0;
@@ -81,8 +83,8 @@ wire [INT_W/2-1:0] quotient;
 wire [INT_W/2-1:0] remainder;
 wire div0, ovf, dout;
 
+// tmp debug
 reg [INT_W/2-1:0] last_quotient = 0;
-
 always @(posedge clk) begin
 	if(dout)
 		last_quotient <= quotient;
@@ -100,6 +102,24 @@ div_uu #(INT_W) div (
 	.ovf(ovf), // overflow
 	.oready(dout) // result ready
 );
+
+reg [31:0] div_pending = 0;
+reg [31:0] div_fifo_slots = 0;
+
+// keep track for making rdreqs from din_fifo -> divider
+always @(posedge clk) begin
+	if (init_div_over) begin
+		if (dvalid && !dout)
+			div_pending <= div_pending + 1;
+		else if (dout && !dvalid)
+			div_pending <= div_pending - 1;
+	end
+
+	if (div_fifo_wrreq && !div_fifo_full && !div_fifo_rdreq)
+		div_fifo_slots <= div_fifo_slots + 1;
+	else if (div_fifo_rdreq && !div_fifo_empty && !div_fifo_wrreq)
+		div_fifo_slots <= div_fifo_slots - 1;
+end
 
 reg v_rready;
 reg [511:0] v_rdata;
@@ -145,6 +165,12 @@ reg [31:0] get_vert_cnt4 = 0;
 reg [31:0] get_sum_cnt = 0;
 reg [31:0] get_sum_cnt0 = 0;
 reg [31:0] get_sum_cnt1 = 0;
+reg [31:0] dout_cnt = 0;
+
+always @(posedge clk) begin
+	if (dout && init_div_over)
+		dout_cnt <= dout_cnt + 1;
+end
 
 
 reg ie_rready;
@@ -309,11 +335,25 @@ always @(*) begin
 	pr_fifo_wrreq = pr_rready;
 	pr_fifo_in = pr_odata;
 
+
     din_fifo_wrreq = vdone && !din_fifo_full;
 	din_fifo_in =  { pr_dividend, n_outedge0 }; 
 
-	div_fifo_wrreq = dout && init_div_over && !div_fifo_full;
+	div_fifo_wrreq = dout && init_div_over;
 	div_fifo_in = quotient;
+
+	// logic to feed into divisor
+	if ((round == 0) && softreg_req_valid && softreg_req_isWrite) begin
+		if (softreg_req_addr == `DONE_READ_PARAMS) begin
+			dividend = 1 << PREC;
+			divisor = n_vertices;
+		end
+	end
+	else begin
+		din = !din_fifo_empty && !div_fifo_full;
+		dividend = din_fifo_out[INT_W*2-1:INT_W];
+		divisor = din_fifo_out[INT_W-1:0];
+	end
 
 	// tmp debug
 	/* if (!reads_done &&!print_done && wb_vcount + 1 == n_vertices) begin */
@@ -404,7 +444,7 @@ reg wb_state = TRANSACTION;
 assign vert_fifo_rdreq = vready == GET_VERT && (!vfirst || (v_vcount == 0));
 assign inedge_fifo_rdreq = ie_getpr && round > 2;
 assign pr_fifo_rdreq = (vready == GET_SUM) && (n_ie_left > 0) && (round > 2);
-assign din_fifo_rdreq = !div_fifo_full;
+assign din_fifo_rdreq = (1 << FIFO_DEPTH) - div_fifo_slots > div_pending;
 assign div_fifo_rdreq = !wb_pending;
 
 // counts
@@ -484,6 +524,7 @@ always @(posedge clk) begin
 			 32'h1b8: sr_resp_data <= v_oready_cnt;
 			 32'h1c0: sr_resp_data <= ie_oready_cnt;
 			 32'h1c8: sr_resp_data <= pr_fifo_cnt;
+			 32'h1d0: sr_resp_data <= dout_cnt;
 			 32'h1d8: sr_resp_data <= din_fifo_cnt;
 			 32'h1e0: sr_resp_data <= outbuffer_cnt;
 			 32'h1e8: sr_resp_data <= div_read_cnt;
@@ -508,7 +549,8 @@ always @(posedge clk) begin
 			 32'h280: sr_resp_data <= get_sum_cnt0;
 			 32'h288: sr_resp_data <= get_sum_cnt1;
 			 32'h290: sr_resp_data <= get_vert_cnt4;
-			 32'h298: sr_resp_data <= pr_counter;
+			 32'h298: sr_resp_data <= div_fifo_slots;
+			 32'h2a0: sr_resp_data <= div_pending;
 			default: sr_resp_data <= 0;
 		endcase
 	end
@@ -712,7 +754,7 @@ end
 HullFIFO #(
 	.TYPE(0),
 	.WIDTH(128),
-	.LOG_DEPTH(6) // buffer 64 vertices at once
+	.LOG_DEPTH(FIFO_DEPTH) // buffer 64 vertices at once
 ) vertex_fifo (
 	.clock(clk),
 	.reset_n(~rst),
@@ -729,7 +771,7 @@ HullFIFO #(
 	.TYPE(0),
 	.WIDTH(64),
  	// buffer 64 vertices at once
-	.LOG_DEPTH(6)
+	.LOG_DEPTH(FIFO_DEPTH)
 ) inedge_fifo (
 	.clock(clk),
 	.reset_n(~rst),
@@ -745,7 +787,7 @@ HullFIFO #(
 HullFIFO #(
 	.TYPE(0),
 	.WIDTH(128),
-	.LOG_DEPTH(6)
+	.LOG_DEPTH(FIFO_DEPTH)
 ) din_fifo (
 	.clock(clk),
 	.reset_n(~rst),
@@ -761,7 +803,7 @@ HullFIFO #(
 HullFIFO #(
 	.TYPE(0),
 	.WIDTH(64),
-	.LOG_DEPTH(6)
+	.LOG_DEPTH(FIFO_DEPTH)
 ) div_fifo (
 	.clock(clk),
 	.reset_n(~rst),
@@ -777,7 +819,7 @@ HullFIFO #(
 HullFIFO #(
 	.TYPE(0),
 	.WIDTH(64),
-	.LOG_DEPTH(6)
+	.LOG_DEPTH(FIFO_DEPTH)
 ) pr_fifo (
 	.clock(clk),
 	.reset_n(~rst),
@@ -894,25 +936,6 @@ always @(posedge clk) begin
 	end
 	else if (arready_m && arvalid_m && (arid_m == 2))
 		pr_pending <= 0;
-end
-
-// DIV: receive #oe and pr sum, divide, put into wb fifo
-always @(posedge clk) begin
-	if (!din_fifo_empty && !div_fifo_full) begin
-		din <= 1;
-		dividend <= din_fifo_out[INT_W*2-1:INT_W];
-		divisor <= din_fifo_out[INT_W-1:0];
-		/* $display("dividing %0b / %0b", din_fifo_out[INT_W*2-1:INT_W], din_fifo_out[INT_W-1:0]); */
-	end
-	else din <= 0;
-
-	// inputs for computing the initial PR value
-	if ((round == 0) && softreg_req_valid && softreg_req_isWrite) begin
-		if (softreg_req_addr == `DONE_READ_PARAMS) begin
-			dividend <= 1 << PREC;
-			divisor <= n_vertices;
-		end
-	end
 end
 
 // WB: receive from DIV and WB fifo, writeback new PR
