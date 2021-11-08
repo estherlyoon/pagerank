@@ -335,7 +335,6 @@ always @(*) begin
 	pr_fifo_wrreq = pr_rready;
 	pr_fifo_in = pr_odata;
 
-
     din_fifo_wrreq = vdone && !din_fifo_full;
 	din_fifo_in =  { pr_dividend, n_outedge0 }; 
 
@@ -350,7 +349,7 @@ always @(*) begin
 		end
 	end
 	else begin
-		din = din_fifo_rdreq;
+		din = din_fifo_rdreq && !din_fifo_empty;
 		dividend = din_fifo_out[INT_W*2-1:INT_W];
 		divisor = din_fifo_out[INT_W-1:0];
 	end
@@ -444,8 +443,8 @@ reg wb_state = TRANSACTION;
 assign vert_fifo_rdreq = vready == GET_VERT && (!vfirst || (v_vcount == 0));
 assign inedge_fifo_rdreq = ie_getpr && round > 2;
 assign pr_fifo_rdreq = (vready == GET_SUM) && (n_ie_left > 0) && (round > 2);
-assign din_fifo_rdreq = (1 << FIFO_DEPTH) - div_fifo_slots > div_pending;
-assign div_fifo_rdreq = !wb_pending;
+assign din_fifo_rdreq = !div_fifo_full && ((1 << FIFO_DEPTH) > (div_pending + div_fifo_slots));
+assign div_fifo_rdreq = !wb_pending && !div_fifo_empty;
 
 // counts
 reg [31:0] v_oready_cnt = 0;
