@@ -465,8 +465,8 @@ always @(posedge clk) begin
 	sr_resp_valid <= softreg_req_valid && !softreg_req_isWrite;
 	if (softreg_req_valid && !softreg_req_isWrite) begin
 		case (softreg_req_addr)
-			 32'h00: sr_resp_data <= div_fifo_cnt;
-			 32'h08: sr_resp_data <= pr_wcnt; //64
+			 32'h00: sr_resp_data <= n_vertices;
+			 32'h08: sr_resp_data <= n_inedges;
 			 32'h10: sr_resp_data <= v_vcount;
 			 32'h18: sr_resp_data <= softreg_req_addr;
 			 32'h20: sr_resp_data <= pr_state;
