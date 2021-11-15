@@ -1,51 +1,104 @@
 // stores larger reads in a buffer, fetching segments until buffer is empty
 // note: bounds is exclusive, so elements from [base,bounds) will be fetched
 module ReadBuffer #(
+	// size of entire line in bytes
 	parameter FULL_WIDTH = 512,
-	parameter WIDTH = 64
+	// size of one element to fetch in bytes
+	parameter WIDTH = 64,
+	parameter LOG_DEPTH = 4
 ) (
 	input clk,
-	input rready,
-	input [FULL_WIDTH-1:0] rdata,
-	input odata_req,
+	input rst,
+	input wrreq,
+	input [FULL_WIDTH-1:0] wdata,
+	input rdreq,
 	input [7:0] base,
 	input [7:0] bounds,
-	// if data exists in the buffer to fetch
-	output oready,
-	output [WIDTH-1:0] odata
+	output empty,
+	output full,
+	output [WIDTH-1:0] rdata
 );
 
 localparam MAX_ELEMS = FULL_WIDTH/WIDTH;
 
-reg [WIDTH-1:0] buffer [MAX_ELEMS-1:0];
-reg [WIDTH-1:0] odata_;
+reg [FULL_WIDTH-1:0] buffer [(1<<LOG_DEPTH)-1:0][MAX_ELEMS-1:0];
 reg [7:0] buffer_elems = 0;
 reg [7:0] rdptr;
 
-assign odata = buffer[rdptr];
-assign oready = (buffer_elems != 0);
+reg [LOG_DEPTH-1:0] rdline = 0;
+reg [LOG_DEPTH-1:0] wrline = 0;
+reg [LOG_DEPTH:0] lines = 0;
+
+wire [LOG_DEPTH-1:0] rdline1 = rdline + 1;
+wire [LOG_DEPTH-1:0] wrline1 = wrline + 1;
+
+wire full_ = lines[LOG_DEPTH];
+wire empty_ = lines == 0;
+
+assign full = full_;
+assign empty = empty_;
+
+reg [LOG_DEPTH-1:0] nbase [(1<<LOG_DEPTH)-1:0];
+reg [LOG_DEPTH-1:0] nbounds [(1<<LOG_DEPTH)-1:0];
+
+wire [LOG_DEPTH-1:0] base_ = nbase[rdline1];
+wire [LOG_DEPTH-1:0] bounds_ = nbounds[rdline1];
+
+assign rdata = buffer[rdline][rdptr];
 
 genvar i;
 generate
-for (i = 1; i <= MAX_ELEMS; i = i + 1)begin
+for (i = 1; i <= MAX_ELEMS; i = i + 1) begin
 	always @(posedge clk) begin
-		if (rready && !oready) begin
-			/* $display("buffer[%d] = %h", MAX_ELEMS-i, rdata[WIDTH*i-1:WIDTH(i-1)]); */
-			buffer[MAX_ELEMS-i] <= rdata[WIDTH*i-1:WIDTH*(i-1)];
-		end
+		if (wrreq && !full_)
+			buffer[wrline][MAX_ELEMS-i] <= wdata[WIDTH*i-1:WIDTH*(i-1)];
 	end
 end
 endgenerate
 
 always @(posedge clk) begin
-	if (rready && !oready) begin
-		buffer_elems <= ((bounds - base) < MAX_ELEMS) ? (bounds - base) : MAX_ELEMS;
-		rdptr <= (base < MAX_ELEMS) ? base : 0;
+	if (rst) begin
+		wrline <= 0;
+		rdline <= 0;
+		lines <= 0;
+        buffer_elems <= 0;
 	end
+	else begin
+        if (rdreq && buffer_elems == 1 && !empty_ && wrreq && !full_) begin
+		end else if (rdreq && buffer_elems == 1 && !empty_) begin
+			lines <= lines - 1;
+		end else if (wrreq && !full_) begin
+			lines <= lines + 1;
+		end
 
-	if (oready && odata_req) begin
-		buffer_elems <= buffer_elems - 1;
-		rdptr <= rdptr + 1;
+		// pointer and mem update
+		if (rdreq && !empty_) begin
+			// only do this if buffer_elems about to be 0
+			if (buffer_elems == 1) begin
+				rdline <= rdline + 1;
+				// update rdptr with nbase with each new line
+				rdptr <= nbase[rdline1];
+				// also update buffer_elems
+				buffer_elems <= bounds_ - base_ < MAX_ELEMS ? bounds_ - base_ : MAX_ELEMS;
+			end
+			// normal case, read out data and update ptr
+			else begin
+				buffer_elems <= buffer_elems - 1;
+				rdptr <= rdptr + 1;
+			end
+		end
+		if (wrreq && !full_) begin
+			wrline <= wrline + 1;
+
+			nbase[wrline] <= (base < MAX_ELEMS) ? base : 0;
+			nbounds[wrline] <= bounds;
+
+			// no lines, need to set initial values
+			if (empty_) begin
+				rdptr <= (base < MAX_ELEMS) ? base : 0; 
+				buffer_elems <= ((bounds - base) < MAX_ELEMS) ? (bounds - base) : MAX_ELEMS;
+			end
+		end
 	end
 end
 endmodule
