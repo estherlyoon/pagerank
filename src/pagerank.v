@@ -61,7 +61,7 @@ localparam BYTE = 8;
 localparam PREC = 16; 
 // log depth of buffers
 localparam FIFO_DEPTH = 6; 
-localparam BUFFER_DEPTH = 6; 
+localparam BUFFER_DEPTH = 3; 
 
 // pr states
 localparam WAIT = 0;
