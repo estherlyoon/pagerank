@@ -166,6 +166,8 @@ reg [31:0] get_sum_cnt = 0;
 reg [31:0] get_sum_cnt0 = 0;
 reg [31:0] get_sum_cnt1 = 0;
 reg [31:0] dout_cnt = 0;
+reg [31:0] outedge_sum = 0;
+reg [31:0] edgecnt_sum = 0;
 
 always @(posedge clk) begin
 	if (dout && init_div_over)
@@ -513,12 +515,12 @@ always @(posedge clk) begin
 			 32'h168: sr_resp_data <= init_din;
 			 32'h170: sr_resp_data <= next_run;
 			 32'h178: sr_resp_data <= count;
-			 32'h180: sr_resp_data <= READ_VERT;
+			 32'h180: sr_resp_data <= edgecnt_sum; // ie_left cnt summed
 			 32'h188: sr_resp_data <= ie_batch;
 			 32'h190: sr_resp_data <= ie_bounds;
 			 32'h198: sr_resp_data <= ie_base;
 			 32'h1a0: sr_resp_data <= get_vert_cnt;
-			 32'h1a8: sr_resp_data <= INT_W;
+			 32'h1a8: sr_resp_data <= outedge_sum; // n outedges cnt summed
 			 32'h1b0: sr_resp_data <= pr_sum;
 			 32'h1b8: sr_resp_data <= v_oready_cnt;
 			 32'h1c0: sr_resp_data <= ie_oready_cnt;
@@ -628,7 +630,7 @@ always @(posedge clk) begin
 						$display("pr_wcnt = %0d", pr_wcnt);
 						$display("vdone_cnt = %0d", vdone_cnt);
 						$display("Done.");
-						$finish();
+						$inish();
 					end
 					else begin
 						// start another run on n rounds
@@ -856,6 +858,7 @@ always @(posedge clk) begin
 					if (vfirst) begin
 						get_vert_cnt4 <= get_vert_cnt4 + 1;
 						n_outedge0 <= vert_fifo_out[INT_W-1:0];
+						outedge_sum <= outedge_sum + n_outedge0;
 						vfirst <= 0;
 					end
 					else begin
@@ -863,21 +866,28 @@ always @(posedge clk) begin
 						ie_offset <= vert_fifo_out[INT_W*2-1:INT_W];
 						n_outedge1 <= vert_fifo_out[INT_W-1:0];
 						vready <= GET_SUM;
+
+						edgecnt_sum <= edgecnt_sum + vert_fifo_out[INT_W*2-1:0]; 
 					end
 				end
 				else begin
 					n_outedge0 <= n_outedge1;
 					n_outedge1 <= vert_fifo_out[INT_W-1:0];
 
+					outedge_sum <= outedge_sum + n_outedge1;
+
 					get_vert_cnt3 <= get_vert_cnt3 + 1;
 					
 					// handle last vertex
-					if (v_vcount == n_vertices-1)
+					if (v_vcount == n_vertices-1) begin
 						n_ie_left <= n_inedges - ie_offset;
+						edgecnt_sum <= edgecnt_sum + n_inedges - ie_offset;
+					end
 					else begin
 						get_vert_cnt <= get_vert_cnt + 1;
 						n_ie_left <= vert_fifo_out[INT_W*2-1:INT_W] - ie_offset;
 						ie_offset <= vert_fifo_out[INT_W*2-1:INT_W];
+						edgecnt_sum <= edgecnt_sum + vert_fifo_out[INT_W*2-1:INT_W] - ie_offset;
 					end
 
 					vready <= GET_SUM;
