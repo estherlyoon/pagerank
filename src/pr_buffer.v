@@ -20,10 +20,10 @@ localparam MAX_ELEMS = FULL_WIDTH/WIDTH;
 reg [WIDTH-1:0] buffer [MAX_ELEMS-1:0];
 reg [WIDTH-1:0] odata_;
 reg [7:0] buffer_elems = 0;
-reg [7:0] rdptr;
+reg [7:0] rdptr = 0;
 
 assign odata = buffer[rdptr];
-assign oready = (buffer_elems != 0);
+assign oready = buffer_elems != 0;
 
 genvar i;
 generate
@@ -42,8 +42,7 @@ always @(posedge clk) begin
 		buffer_elems <= ((bounds - base) < MAX_ELEMS) ? (bounds - base) : MAX_ELEMS;
 		rdptr <= (base < MAX_ELEMS) ? base : 0;
 	end
-
-	if (oready && odata_req) begin
+	else if (oready && odata_req) begin
 		buffer_elems <= buffer_elems - 1;
 		rdptr <= rdptr + 1;
 	end
