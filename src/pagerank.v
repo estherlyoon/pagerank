@@ -84,12 +84,10 @@ wire [INT_W/2-1:0] quotient;
 wire [INT_W/2-1:0] remainder;
 wire div0, ovf, dout;
 
-// tmp debug
-reg [INT_W/2-1:0] last_quotient = 0;
-always @(posedge clk) begin
-	if(dout)
-		last_quotient <= quotient;
-end
+// credits
+reg [31:0] div_pending = 0;
+reg [31:0] div_fifo_slots = 0;
+reg [31:0] pr_fifo_slots = 0;
 
 div_uu #(INT_W) div (
 	.clk(clk),
@@ -103,24 +101,6 @@ div_uu #(INT_W) div (
 	.ovf(ovf), // overflow
 	.oready(dout) // result ready
 );
-
-reg [31:0] div_pending = 0;
-reg [31:0] div_fifo_slots = 0;
-
-// keep track for making rdreqs from din_fifo -> divider
-always @(posedge clk) begin
-	if (init_div_over) begin
-		if (dvalid && !dout)
-			div_pending <= div_pending + 1;
-		else if (dout && !dvalid)
-			div_pending <= div_pending - 1;
-	end
-
-	if (div_fifo_wrreq && !div_fifo_full && !div_fifo_rdreq)
-		div_fifo_slots <= div_fifo_slots + 1;
-	else if (div_fifo_rdreq && !div_fifo_empty && !div_fifo_wrreq)
-		div_fifo_slots <= div_fifo_slots - 1;
-end
 
 reg v_wrreq;
 reg [511:0] v_wdata;
@@ -380,7 +360,7 @@ always @(*) begin
 
 	pr_rready = rvalid_m && (rid_m == 2);
 	pr_rdata = rdata_m;
-	// this is fine because we only request a read when fifo !full
+	// this is fine because we only rdreq when there's enough credits
 	pr_fifo_wrreq = pr_rready;
 	pr_fifo_in = pr_odata;
 
@@ -391,7 +371,7 @@ always @(*) begin
 	div_fifo_in = quotient;
 
 	// logic to feed into divisor
-	if (round < 2) begin
+	if (init_din) begin
 		dividend = 1 << PREC;
 		divisor = n_vertices;
 	end
@@ -422,7 +402,7 @@ always @(*) begin
 			arid_m = 2;
 			araddr_m = pr_raddr;
 			arlen_m = 0;
-			arvalid_m = !pr_fifo_full && !inedge_fifo_empty && pr_pending; // TODO can remove first two?
+			arvalid_m = pr_pending;
 		end
 	endcase
 	/* end */
@@ -467,14 +447,15 @@ reg [31:0] edge_fetched = 0;
 reg [31:0] edge_to_fetch = 0;
 
 // vertex stage signals
-reg [1:0] vready = 0;
+reg [1:0] vready = VERT_INIT;
 reg vfirst = 1;
 
 // in-edge stage signals
 wire ie_getpr = arvalid_m && arready_m && (arid_m == 2);
 
-localparam GET_VERT = 0;
-localparam GET_SUM = 1;
+localparam VERT_INIT = 0;
+localparam GET_VERT = 1;
+localparam GET_SUM = 2;
 
 // writing back signals
 localparam TRANSACTION = 0;
@@ -546,7 +527,7 @@ always @(posedge clk) begin
 			 32'h128: sr_resp_data <= divisor;
 			 32'h130: sr_resp_data <= pr_waddr;
 			 32'h138: sr_resp_data <= wb_pending;
-			 32'h140: sr_resp_data <= last_quotient;
+			 32'h140: sr_resp_data <= 0;
 			 32'h148: sr_resp_data <= v_bounds;
 			 32'h150: sr_resp_data <= div_fifo_empty;
 			 32'h158: sr_resp_data <= din_fifo_empty;
@@ -595,7 +576,34 @@ always @(posedge clk) begin
 		endcase
 	end
 end
+     
+// credits
+always @(posedge clk) begin
+	// keep credits for making rdreqs from din_fifo -> divider
+	if (init_div_over) begin
+		if (dvalid && !dout)
+			div_pending <= div_pending + 1;
+		else if (dout && !dvalid)
+			div_pending <= div_pending - 1;
+	end
 
+	if (div_fifo_wrreq && !div_fifo_full && div_fifo_rdreq && !div_fifo_empty) begin
+	end
+	else if (div_fifo_wrreq && !div_fifo_full)
+		div_fifo_slots <= div_fifo_slots + 1;
+	else if (div_fifo_rdreq && !div_fifo_empty)
+		div_fifo_slots <= div_fifo_slots - 1;
+
+	// keep credits for pr_fifo writes
+	if (ie_getpr && pr_fifo_rdreq && !pr_fifo_empty) begin
+	end
+	else if (ie_getpr)
+		pr_fifo_slots <= pr_fifo_slots + 1;
+	else if (pr_fifo_rdreq && !pr_fifo_empty)
+		pr_fifo_slots <= pr_fifo_slots - 1;  
+end
+
+ 
 /* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
 currently round-robin between read types, but if streaming buffers are full,
 will keep performing random reads
@@ -614,8 +622,6 @@ always @(posedge clk) begin
 
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
-			// TODO issues with Buffer 1-cycle latency when reading multiple rounds
-			// can use more batches when Buffer can accept adjacent reads
 			ie_batch <= 4'd1;
 			ie_base <= ie_base_addr[5:3];
 			ie_bounds <= ie_to_fetch < 512/INT_W ? ie_to_fetch : 512/INT_W;
@@ -877,6 +883,10 @@ AddrParser #(
 // VERT: read 2 things to get # i-e, store both # oe, wait for PR reads
 always @(posedge clk) begin
 	case(vready)
+		VERT_INIT: begin
+			if (softreg_req_valid && softreg_req_isWrite && (softreg_req_addr == `DONE_READ_PARAMS))
+				vready <= GET_VERT;
+		end
 		// read vertex to process, it's starting offset
 		GET_VERT: begin
 			vdone <= 0;
@@ -935,8 +945,8 @@ always @(posedge clk) begin
 			else begin
 				/* $display("VERTEX %0d", v_vcount); */
 				// put sum into divider, when divider is done it writes back
-				get_sum_cnt1 <= get_sum_cnt1 + 1;
 				vdone <= 1;
+				get_sum_cnt1 <= get_sum_cnt1 + 1;
 				// start processing next vertex
 				if (!din_fifo_full) begin
 					vready <= GET_VERT;
@@ -963,7 +973,7 @@ always @(posedge clk) begin
 	// full)
 	// shouldn't really need round > 2 because ie_fifo should be empty at
 	// start
-	if (round > 2 && !pr_pending && !inedge_fifo_empty && !pr_fifo_full) begin
+	if (round > 2 && !pr_pending && !inedge_fifo_empty && pr_fifo_slots < 1<<FIFO_DEPTH) begin
 		pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
    		pr_pending <= 1;
 	end
