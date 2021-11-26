@@ -2,7 +2,7 @@
 SRC_DIR := src
 BIN_DIR := ../bin
 
-EXEC := ${BIN_DIR}/page_rank
+EXEC := ${BIN_DIR}/pagerank
 DVFILES := $(wildcard $(SRC_DIR)/*.v)
 VFILES := $(notdir ${DVFILES})
 
