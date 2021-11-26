@@ -313,25 +313,8 @@ wire [INT_W-1:0] pr_dividend = pr_sum;
      
 reg [31:0] div_pending = 0;
 reg [31:0] div_fifo_slots = 0;
+reg [31:0] pr_fifo_slots = 0;
 
-// keep track for making rdreqs from din_fifo -> divider
-always @(posedge clk) begin
-	if (init_div_over) begin
-		if (dvalid && !dout)
-			div_pending <= div_pending + 1;
-		else if (dout && !dvalid)
-			div_pending <= div_pending - 1;
-	end
-
-	if (div_fifo_wrreq && !div_fifo_full && div_fifo_rdreq && div_fifo_not_empty) begin
-	end
-	else if (div_fifo_wrreq && !div_fifo_full)
-		div_fifo_slots <= div_fifo_slots + 1;
-	// does this fix bug when fifo gets read from even if never written to?
-	else if (div_fifo_rdreq && div_fifo_not_empty)
-		div_fifo_slots <= div_fifo_slots - 1;
-end
- 
 // set when something read to buffers
 reg v_pending = 0;
 reg ie_pending = 0;
@@ -379,6 +362,7 @@ always @(*) begin
 	pr_rready = rvalid_m && (rid_m == 2);
 	pr_rdata = rdata_m;
 	// this is fine because we only request a read when fifo !full
+	// no it's not bc read latency --> many reads will then overflow fifo
 	pr_fifo_wrreq = pr_rready;
 	pr_fifo_in = pr_odata;
 
@@ -400,13 +384,6 @@ always @(*) begin
 	end
 
 	// tmp debug
-	/* if (!reads_done &&!print_done && wb_vcount + 1 == n_vertices) begin */
-	/* 	arid_m = 3; */
-	/* 	arlen_m = 0; */
-	/* 	arvalid_m = 1; */
-	/* 	araddr_m = base_pr_waddr + 16; */
-	/* end */
-	/* else begin */
 	case(pr_state)
 		READ_VERT: begin
 			arid_m = 0;
@@ -426,10 +403,9 @@ always @(*) begin
 			arid_m = 2;
 			araddr_m = pr_raddr;
 			arlen_m = 0;
-			arvalid_m = !pr_fifo_full && inedge_fifo_not_empty && pr_pending; // TODO can remove first two?
+			arvalid_m = pr_pending;
 		end
 	endcase
-	/* end */
 end
 
 // determine which part of line to write back
@@ -604,11 +580,37 @@ always @(posedge clk) begin
 			 32'h2d0: sr_resp_data <= axi_word_rq;
 			 32'h2d8: sr_resp_data <= vert_read_cnt;
 			 32'h2e0: sr_resp_data <= vert_read_cnt0;
+			 32'h2e8: sr_resp_data <= pr_fifo_slots;
 			default: sr_resp_data <= 0;
 		endcase
 	end
 end
+  
+always @(posedge clk) begin
+	// keep credits for making rdreqs from din_fifo -> divider
+	if (init_div_over) begin
+		if (dvalid && !dout)
+			div_pending <= div_pending + 1;
+		else if (dout && !dvalid)
+			div_pending <= div_pending - 1;
+	end
 
+	if (div_fifo_wrreq && !div_fifo_full && div_fifo_rdreq && div_fifo_not_empty) begin
+	end
+	else if (div_fifo_wrreq && !div_fifo_full)
+		div_fifo_slots <= div_fifo_slots + 1;
+	else if (div_fifo_rdreq && div_fifo_not_empty)
+		div_fifo_slots <= div_fifo_slots - 1;
+
+	// keep credits for pr_fifo writes
+	if (ie_getpr && pr_fifo_rdreq && pr_fifo_not_empty) begin
+	end
+	else if (ie_getpr)
+		pr_fifo_slots <= pr_fifo_slots + 1;
+	else if (pr_fifo_rdreq && pr_fifo_not_empty)
+		pr_fifo_slots <= pr_fifo_slots - 1; 
+end
+ 
 /* data read logic to read in some # vertices -> some # in-edge vertices -> random PR reads
 currently round-robin between read types, but if streaming buffers are full,
 will keep performing random reads
@@ -1019,7 +1021,7 @@ always @(posedge clk) begin
 	// full)
 	// shouldn't really need round > 2 because ie_fifo should be empty at
 	// start
-	if (round > 2 && !pr_pending && inedge_fifo_not_empty && !pr_fifo_full) begin
+	if (round > 2 && !pr_pending && inedge_fifo_not_empty && pr_fifo_slots < 1<<FIFO_DEPTH) begin
 		pr_raddr <= base_pr_raddr + (inedge_fifo_out << 3);
    		pr_pending <= 1;
 	end
