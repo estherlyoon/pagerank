@@ -22,10 +22,10 @@ def generate_graph(vertices, edges):
 	G.add_nodes_from(range(vertices))
 
 	for v in range(vertices):
-		n_edges = random.randrange(1, edges+1)
+		n_edges = 1
 		added_edges = 0
 		while added_edges != n_edges:
-			dest = random.randrange(vertices)
+			dest = (v + 1) % vertices
 			if v != dest and not G.has_edge(v, dest):
 				G.add_edge(v, dest)
 				added_edges += 1
