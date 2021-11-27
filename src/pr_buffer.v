@@ -30,7 +30,6 @@ reg [LOG_DEPTH-1:0] wrline = 0;
 reg [LOG_DEPTH:0] lines = 0;
 
 wire [LOG_DEPTH-1:0] rdline1 = rdline + 1;
-wire [LOG_DEPTH-1:0] wrline1 = wrline + 1;
 
 wire full_ = lines[LOG_DEPTH];
 wire empty_ = lines == 0;
@@ -78,7 +77,12 @@ always @(posedge clk) begin
 					// update rdptr with nbase with each new line
 					rdptr <= 0;
 					// also update buffer_elems
-					buffer_elems <= last_ && last_rdline == rdline + 1 ? last_bounds : MAX_ELEMS;
+					buffer_elems <= last_ && last_rdline == rdline1 ? last_bounds : MAX_ELEMS;
+					// reset last signals
+					if (last_ && last_rdline == rdline1) begin
+						last_ <= 0;
+						last_rdline <= 0;
+					end
 				end
 			end
 			// normal case, read out data and update ptr
@@ -86,6 +90,7 @@ always @(posedge clk) begin
 				buffer_elems <= buffer_elems - 1;
 				rdptr <= rdptr + 1;
 			end
+			/* $display("%0d: buffer[%0d][%0d] = %x", WIDTH, rdline, rdptr, buffer[rdline][rdptr]); */
 		end
 		if (wrreq && !full_) begin
 			wrline <= wrline + 1;
@@ -102,6 +107,7 @@ always @(posedge clk) begin
 				rdptr <= 0;
 				buffer_elems <= last ? bounds : MAX_ELEMS;
 			end
+			/* $display("%0d: buffer[%0d] = %b", WIDTH, wrline, wdata); */
 		end
 	end
 end

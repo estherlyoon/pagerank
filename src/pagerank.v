@@ -106,7 +106,7 @@ reg v_wrreq;
 reg [511:0] v_wdata;
 reg v_rdreq;
 reg [63:0] v_wrreq_cnt = 0;
-wire v_last = n_vertices[1:0] != 0 ? ((v_wrreq_cnt + 1) == (n_vertices >> 2)) + 1 
+wire v_last = n_vertices[1:0] != 0 ? ((v_wrreq_cnt + 1) == ((n_vertices >> 2) + 1))
 					: (v_wrreq_cnt + 1) == (n_vertices >> 2);
 reg [7:0] v_bounds;
 wire v_empty;
@@ -155,21 +155,29 @@ reg [31:0] get_sum_cnt0 = 0;
 reg [31:0] get_sum_cnt1 = 0;
 reg [31:0] dout_cnt = 0;
 
-always @(posedge clk) begin
-	if (dout && init_div_over)
-		dout_cnt <= dout_cnt + 1;
-end
-
 reg ie_wrreq;
 reg [511:0] ie_wdata;
 reg ie_rdreq;
 reg [63:0] ie_wrreq_cnt = 0;
-wire ie_last = n_inedges[2:0] != 0 ? ((ie_wrreq_cnt + 1) == (n_inedges >> 3)) + 1 
-					: (ie_wrreq_cnt + 1) == (n_inedges >> 3);
+wire ie_last = n_inedges[2:0] != 0 ? (ie_wrreq_cnt + 1) == ((n_inedges >> 3) + 1)
+					: ((ie_wrreq_cnt + 1) == (n_inedges >> 3));
 reg [7:0] ie_bounds;
 wire ie_empty;
 wire ie_full;
 wire [INT_W-1:0] ie_rdata;
+
+// tmp debug
+always @(posedge clk) begin
+	if (dout && init_div_over)
+		dout_cnt <= dout_cnt + 1;
+	/*
+	if (ie_last)
+		$display("ie_last: ie_wrreq_cnt = %0d, shifted = %0d", ie_wrreq_cnt, (n_inedges >> 3) + 1);
+	if (v_last)
+		$display("v_last: v_wrreq_cnt = %0d, vert >> 3 + 1 = %0d, v[1:0] = %0d", v_wrreq_cnt, (n_vertices >> 2) + 1, n_vertices[1:0]);
+		*/
+end
+
  
 ReadBuffer #(
 	.FULL_WIDTH(512),
@@ -623,13 +631,11 @@ always @(posedge clk) begin
 		WAIT: begin
 			v_addr <= v_base_addr;
 			vert_to_fetch <= n_vertices;
-			v_bounds <= 512/(INT_W*2); // TODO handle < 4 for total vertices (not critical)
 			v_wrreq_cnt <= 0;
 
 			ie_addr <= ie_base_addr;
 			ie_to_fetch <= n_inedges;
 			ie_batch <= 4'd1;
-			ie_bounds <= 512/INT_W;
 			ie_wrreq_cnt <= 0;
 
 			if (round == 0) begin
@@ -778,8 +784,6 @@ always @(posedge clk) begin
 		v_wrreq_cnt <= v_wrreq_cnt + 1;
 	if (ie_wrreq)
 		ie_wrreq_cnt <= ie_wrreq_cnt + 1;
-	if (count % 10 == 0)
-		$display("v_wrreq_cnt = %0d, ie_wrreq_cnt = %0d", v_wrreq_cnt, ie_wrreq_cnt);
 
 	if (rst) begin
 		rst_called <= 1;
