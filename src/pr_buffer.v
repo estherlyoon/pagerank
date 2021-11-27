@@ -96,7 +96,7 @@ always @(posedge clk) begin
 			wrline <= wrline + 1;
 
 			if (last) begin
-				last_ <= 1;
+				last_ <= !(empty_ || (rdreq && lines == 1 && buffer_elems == 1));
 				last_rdline <= wrline;
 				last_bounds <= bounds;
 				$display("%0d: setting last_rdline = %0d, last_bounds = %0d", WIDTH, wrline, bounds);

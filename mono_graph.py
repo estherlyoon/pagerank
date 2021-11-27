@@ -78,7 +78,7 @@ def write_gf(G):
 		# 0-pad the rest
 		while separator % 8 != 0:
 			f.write(int_to_bytestring(0))
-			separator += 1
+			update_separator(f)
 		# in-edge array
 		for node in G:
 			random_edges = []

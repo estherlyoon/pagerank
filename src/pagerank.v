@@ -209,6 +209,7 @@ reg [31:0] ie_credits = 0;
 reg [31:0] v_words_cnt = 512/(INT_W*2);
 reg [31:0] ie_words_cnt = 512/INT_W;
 
+// managing buffer credits
 always @(posedge clk) begin
 	if (!v_empty && v_rdreq && arid_m == 0 && arvalid_m && arready_m) begin
 		// one line done being read while one is written
@@ -224,6 +225,8 @@ always @(posedge clk) begin
 			v_words_cnt <= v_words_cnt - 1;
 			v_credits <= v_credits + 1;
 		end
+		if (!v_arlast)
+			v_ar_cnt <= v_ar_cnt + 1;
 	end else if (!v_empty && v_rdreq) begin
 		if (v_words_cnt == 1) begin
 			if (v_arlast) begin
@@ -258,6 +261,8 @@ always @(posedge clk) begin
 			ie_words_cnt <= ie_words_cnt - 1;
 			ie_credits <= ie_credits + 1;
 		end
+		if (!ie_arlast)
+			ie_ar_cnt <= ie_ar_cnt + 1;
 	end else if (!ie_empty && ie_rdreq) begin
 		if (ie_words_cnt == 1) begin
 			if (ie_arlast) begin
@@ -440,16 +445,14 @@ always @(*) begin
 			araddr_m = v_addr;
 			arlen_m = 0;
 			// only request reads when buffer is ready to accept data
-			// TODO signal v is full before read is ready
 			arvalid_m = !v_full && (vert_to_fetch > 0) && v_credits < (1<<BUFFER_DEPTH);
 		end
 		READ_INEDGES: begin
 			arid_m = 1;
 			araddr_m = ie_addr;
 			arlen_m = 0;
-			// TODO signal ie buffer is full before read is ready
 			arvalid_m = (round > 2) && !ie_full && (ie_to_fetch > 0)
-						&& (ie_batch > 0) && !inedge_fifo_full && ie_credits < (1<<BUFFER_DEPTH);
+						&& (ie_batch > 0) && ie_credits < (1<<BUFFER_DEPTH);
 		end
 		READ_PR: begin
 			arid_m = 2;
@@ -740,8 +743,6 @@ always @(posedge clk) begin
 						pr_state <= READ_VERT;
 						round <= round + 1;
 						init_div_over <= 1;
-						/* $display("\n*** Round 1: quotient is %b, remainder %b ***\n", */ 
-												/* quotient, remainder); */
 					end
 				end
 				// all other rounds
@@ -1058,8 +1059,6 @@ always @(posedge clk) begin
  		pr_wvalid <= 0;
 
 	if (bvalid_m) begin
-		/* $display("--------- WRITING %0b to 0x%0h ---------", */
-		/* 	   		pagerank, pr_waddr); */
 		wb_pending <= 0;
 		if (wb_vcount + 1 == n_vertices) begin
 			$display("*** Done with round %0d of PR ***", round-2);
@@ -1086,56 +1085,5 @@ always @(posedge clk) begin
 			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init stage
 		endcase
 	end
- 
-		// tmp debug
-		/* if (wb_vcount + 1 == n_vertices) begin */
-		/* 	if (print_done) begin */
-		/* 		print_done <= 0; */
-		/* 		$display("*** Done with round %0d of PR ***", round-2); */
-		/* 		base_pr_waddr <= base_pr_raddr; */
-		/* 		base_pr_raddr <= base_pr_waddr; */
-		/* 		wb_vcount <= 0; */
-		/* 		wait_priority <= 1; */
-		/* 	end */
-		/* end */ 
-      
 end
- 
-// tmp debug
-/* reg print_done = 0; */
-/* reg reads_done = 0; */
-/* reg [511:0] line0 = 0; */
-
-/* always @(posedge clk) begin */
-/* 	if (!reads_done &&!print_done && wb_vcount + 1 == n_vertices) begin */
-/* 		if (rid_m == 3 && rvalid_m) begin */
-/* 			line0 <= rdata_m; */
-/* 			/1* $display("line: %0b", rdata_m); *1/ */
-/* 			reads_done <= 1; */
-/* 		end */
-/* 	end */
-/* end */
-
-/* genvar p; */
-/* generate */
-/* 	for (p=0; p<8; p = p+1) begin */
-/* 		always @(posedge clk) begin */
-/* 			if (reads_done && !print_done && wb_vcount + 1 == n_vertices) begin */
-/* 				$display("PR %0d = %0b", p+2, line0[511-p*64-1:448-64*p]); */
-/* 				print_done <= 1; */
-/* 				reads_done <= 0; */
-/* 			end */
-/* 		end */
-/* 	end */
-	/* for (p=0; p<2; p = p+1) begin */
-	/* 	always @(posedge clk) begin */
-	/* 		if (reads_done && !print_done && wb_vcount + 1 == n_vertices) begin */
-	/* 			$display("PR %0d = %0b", p+8, line1[511-p*64-1:448-64*p]); */
-	/* 			print_done <= 1; */
-	/* 		end */
-	/* 	end */
-	/* end */
-/* endgenerate */
-
- 
 endmodule
