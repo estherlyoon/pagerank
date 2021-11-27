@@ -105,7 +105,10 @@ div_uu #(INT_W) div (
 reg v_wrreq;
 reg [511:0] v_wdata;
 reg v_rdreq;
+reg [63:0] v_ar_cnt = 0;
 reg [63:0] v_wrreq_cnt = 0;
+wire v_arlast = n_vertices[1:0] != 0 ? (v_ar_cnt == ((n_vertices >> 2) + 1))
+					: v_ar_cnt == (n_vertices >> 2);
 wire v_last = n_vertices[1:0] != 0 ? ((v_wrreq_cnt + 1) == ((n_vertices >> 2) + 1))
 					: (v_wrreq_cnt + 1) == (n_vertices >> 2);
 reg [7:0] v_bounds;
@@ -158,7 +161,10 @@ reg [31:0] dout_cnt = 0;
 reg ie_wrreq;
 reg [511:0] ie_wdata;
 reg ie_rdreq;
+reg [63:0] ie_ar_cnt = 0;
 reg [63:0] ie_wrreq_cnt = 0;
+wire ie_arlast = n_inedges[2:0] != 0 ? ie_ar_cnt == ((n_inedges >> 3) + 1)
+					: (ie_ar_cnt == (n_inedges >> 3));
 wire ie_last = n_inedges[2:0] != 0 ? (ie_wrreq_cnt + 1) == ((n_inedges >> 3) + 1)
 					: ((ie_wrreq_cnt + 1) == (n_inedges >> 3));
 reg [7:0] ie_bounds;
@@ -200,47 +206,79 @@ reg [31:0] v_credits = 0;
 reg [31:0] ie_credits = 0;
 
 // have to increment v_credits every 8 words
-reg [31:0] v_words_cnt = 0;
-reg [31:0] ie_words_cnt = 0;
+reg [31:0] v_words_cnt = 512/(INT_W*2);
+reg [31:0] ie_words_cnt = 512/INT_W;
 
 always @(posedge clk) begin
 	if (!v_empty && v_rdreq && arid_m == 0 && arvalid_m && arready_m) begin
 		// one line done being read while one is written
-		if (v_words_cnt + 1 == 512/(2*INT_W))
-			v_words_cnt <= 0;
-		// a word read, can't decrement credits
+		if (v_words_cnt == 1) begin
+			if (v_arlast) begin
+				v_words_cnt <= v_bounds;
+				v_ar_cnt <= 0;
+			end
+			else v_words_cnt <= 512/(INT_W*2);
+		end
+		// a word read, can't decrement total credits
 		else begin
-			v_words_cnt <= v_words_cnt + 1;
+			v_words_cnt <= v_words_cnt - 1;
 			v_credits <= v_credits + 1;
 		end
 	end else if (!v_empty && v_rdreq) begin
-		if (v_words_cnt + 1 == 512/(2*INT_W)) begin
-			v_words_cnt <= 0;
+		if (v_words_cnt == 1) begin
+			if (v_arlast) begin
+				v_words_cnt <= v_bounds;
+				v_ar_cnt <= 0;
+			end
+			else v_words_cnt <= 512/(INT_W*2);
 			v_credits <= v_credits - 1;
 		end
+		else if (v_arlast && v_credits == 1 && v_words_cnt == 512/INT_W) begin
+			if (v_bounds == 1) v_credits <= v_credits - 1;
+			else v_words_cnt <= v_bounds - 1;
+			v_ar_cnt <= 0;
+		end
 		else
-			v_words_cnt <= v_words_cnt + 1;
+			v_words_cnt <= v_words_cnt - 1;
 	end
-	else if (arid_m == 0 && arvalid_m && arready_m)
+	else if (arid_m == 0 && arvalid_m && arready_m) begin
 		v_credits <= v_credits + 1;
+		v_ar_cnt <= v_ar_cnt + 1;
+	end
 
 	if (!ie_empty && ie_rdreq && arid_m == 1 && arvalid_m && arready_m) begin
-		if (ie_words_cnt + 1 == 512/INT_W)
-			ie_words_cnt <= 0;
+		if (ie_words_cnt == 1) begin
+			if (ie_arlast) begin
+				ie_words_cnt <= ie_bounds;
+				ie_ar_cnt <= 0;
+			end
+			else ie_words_cnt <= 512/INT_W;
+		end
 		else begin
+			ie_words_cnt <= ie_words_cnt - 1;
 			ie_credits <= ie_credits + 1;
-			ie_words_cnt <= ie_words_cnt + 1;
 		end
 	end else if (!ie_empty && ie_rdreq) begin
-		if (ie_words_cnt + 1 == 512/INT_W) begin
-			ie_words_cnt <= 0;
+		if (ie_words_cnt == 1) begin
+			if (ie_arlast) begin
+				ie_words_cnt <= ie_bounds;
+				ie_ar_cnt <= 0;
+			end
+			else ie_words_cnt <= 512/INT_W;
 			ie_credits <= ie_credits - 1;
 		end
+		else if (ie_arlast && ie_credits == 1 && ie_words_cnt == 512/INT_W) begin
+			if (ie_bounds == 1) ie_credits <= ie_credits - 1;
+			else ie_words_cnt <= ie_bounds - 1;
+			ie_ar_cnt <= 0;
+		end
 		else
-			ie_words_cnt <= ie_words_cnt + 1;
+			ie_words_cnt <= ie_words_cnt - 1;
 	end
-	else if (arid_m == 1 && arvalid_m && arready_m)
+	else if (arid_m == 1 && arvalid_m && arready_m) begin
 		ie_credits <= ie_credits + 1;
+		ie_ar_cnt <= ie_ar_cnt + 1;
+	end
 end
 
 reg pr_rready;
