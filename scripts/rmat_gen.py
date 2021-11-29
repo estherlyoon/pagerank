@@ -1,49 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
-import random
-import sys
-import os
-import networkx as nx
+import snap
 
-""" 
-mem_init.hex structure:
-	n_vertices (offset+#outedges) + 0-pad up to 64B | in_edges | write space 0 | write space 1
-	everything is represented as a 64-bit integer (written as 8 hex characters), but this could be easily parameterized
-""" 
-	
-separator = 0 
-# add some number of edges in range [1, e] for each vertex
-# don't add any self-edges or repeat edges
-def generate_graph(infile):
-	G = nx.DiGraph()
-	with open(infile) as f:
-		data = f.read().split('\n')
-		metadata = data[0].split(' ')
-		vertices = int(metadata[2])
-		print(f'graph has {vertices} vertices')
-		
-		for i in range(1, len(data)-1):
-			line = data[i].split(' ')
-			if line[0] != 'a':
-				continue
-			src = int(line[1])
-			dest = int(line[2])
-			if src not in G:
-				G.add_node(src)
-			if dest not in G:
-				G.add_node(dest)
-			#print(f'add from {src} to {dest}')
-			if src != dest and not G.has_edge(src, dest):
-				G.add_edge(src, dest)
+def main():
+	parser = argparse.ArgumentParser(description='Create graph representation file')
+	parser.add_argument('-v', '--vertices', type=int)
+	parser.add_argument('-e', '--edges', type=int)
 
-# uncomment if you want every vertex to have at least one in-edge
-#	for v in G:
-#		if len(G.in_edges(v)) == 0:
-#			src = random.randrange(vertices)
-#			G.add_edge(src, v)
+	args = parser.parse_args()
 
-	return G
+	Rnd = snap.TRnd()
+	Graph = snap.GenRMat(args.vertices, args.edges, .6, .1, .15, Rnd)
+
+	for EI in Graph.Edges():
+		    print("edge: (%d, %d)" % (EI.GetSrcNId(), EI.GetDstNId()))
+	#G = generate_graph(args.filename)
 
 def int_to_bytestring(n, minlen=0):
 	if n > 0:
@@ -75,7 +47,6 @@ def write_gf(G):
 	with open('mem_init.hex', 'w') as f:
 		# vertex array
 		for node in G:
-			print(f"v{node} has offset = {offset}, outedges = {len(G.out_edges(node))}")
 			# write offset into ie vertices array
 			f.write(int_to_bytestring(offset))
 			offset += len(G.in_edges(node))
@@ -116,7 +87,8 @@ def write_gf(G):
 	print("--- potential address parameters ---")
 	print("VADDR:", str(0))
 	# 8 bytes * 2 * N_VERT
-	ieaddr = 16 * G.number_of_nodes()
+	vbytes = 16 * G.number_of_nodes()
+	ieaddr = vbytes if (vbytes % 64 == 0) else vbytes + (64 - vbytes % 64)
 	print("IEADDR:", str(ieaddr))
 	wa0 = ieaddr + 8 * total_inedges
 	print("WRITE_ADDR0:", str(wa0))
@@ -124,12 +96,16 @@ def write_gf(G):
 
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')
-	parser.add_argument('-f', '--filename', type=str,
-							help='name of dimacs file to process')
+	parser.add_argument('-v', '--vertices', type=int,
+							help='number of vertices in graph')
+	parser.add_argument('-e', '--edges', type=int,
+							help='max edges per node')
 
 	args = parser.parse_args()
+	vertices = args.vertices
+	edges = args.edges
 
-	G = generate_graph(args.filename)
+	G = generate_graph(vertices, edges)
 
 	write_gf(G)
 
