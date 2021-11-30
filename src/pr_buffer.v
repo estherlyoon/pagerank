@@ -58,7 +58,7 @@ always @(posedge clk) begin
 		rdline <= 0;
 		lines <= 0;
         buffer_elems <= 0;
-		$display("buffer_elems = 0");
+		last_ <= 0;
 	end
 	else begin
         if (rdreq && buffer_elems == 1 && !empty_ && wrreq && !full_) begin
