@@ -163,6 +163,9 @@ wire [INT_W*2-1:0] v_rdata;
 reg [31:0] inbuffer_cnt = 0;
 reg [31:0] outbuffer_cnt = 0;
 reg [31:0] txn_cnt = 0;
+reg [31:0] total_rvalid0 = 0;
+reg [31:0] total_rvalid1 = 0;
+reg [31:0] total_rvalid2 = 0;
 
 ReadBuffer #(
 	.FULL_WIDTH(512),
@@ -584,12 +587,15 @@ always @(posedge clk) begin
 			 32'h00: sr_resp_data <= n_vertices;
 			 32'h08: sr_resp_data <= n_inedges;
 			 32'h10: sr_resp_data <= v_vcount;
+			 32'h18: sr_resp_data <= total_rvalid0; //**
 			 32'h20: sr_resp_data <= pr_state;
 			 32'h28: sr_resp_data <= vert_to_fetch;
 			 32'h30: sr_resp_data <= ie_to_fetch;
 			 32'h38: sr_resp_data <= total_runs;
 			 32'h40: sr_resp_data <= round;
+			 32'h48: sr_resp_data <= total_rvalid1; //**
 			 32'h58: sr_resp_data <= vert_fifo_full;
+			 32'h60: sr_resp_data <= total_rvalid2; //**
 			 32'h78: sr_resp_data <= vrd_cnt;  
 			 32'h80: sr_resp_data <= ierd_cnt;
 			 32'h88: sr_resp_data <= init_val;
@@ -838,10 +844,16 @@ always @(posedge clk) begin
 	endcase
 
 	// keep track so we know when to use bounds
-	if (v_wrreq)
+	if (v_wrreq) begin
+		total_rvalid0 <= total_rvalid0 + 1;
 		v_wrreq_cnt <= v_wrreq_cnt + 1;
-	if (ie_wrreq)
+	end
+	if (ie_wrreq) begin
+		total_rvalid1 <= total_rvalid1 + 1;
 		ie_wrreq_cnt <= ie_wrreq_cnt + 1;
+	end
+	if (pr_rready)
+		total_rvalid2 <= total_rvalid2 + 1;
 
 	if (softreg_req_valid && softreg_req_isWrite && softreg_req_addr == 64'h40)
 		total_runs <= softreg_req_data;
