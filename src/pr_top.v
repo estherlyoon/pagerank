@@ -104,14 +104,14 @@ always @(*) begin
 	32'd10: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
-		softreg_req_addr = `DONE_READ_PARAMS;
+		softreg_req_addr = `DO_INIT;
 		softreg_req_data = 64'd0;
 	end
-	32'd500000: begin
+	32'd11: begin
 		softreg_req_valid = 1;
-		softreg_req_isWrite = 0;
-		softreg_req_addr = `DONE_ALL;
-		softreg_req_data = 64'h0;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `DONE_READ_PARAMS;
+		softreg_req_data = 64'd0;
 	end
 	default: begin
 		softreg_req_valid = 0;
