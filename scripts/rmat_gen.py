@@ -1,42 +1,12 @@
 #!/usr/bin/env python3
 
 import argparse
+import snap
 import random
 import sys
-import os
-import networkx as nx
-
-""" 
-mem_init.hex structure:
-	n_vertices | n_edges | vertex map | in-edges map | # out-edges map
-	everything is represented as a 64-bit integer (written as 8 hex characters), but this could be easily parameterized
-	note: since we're not adding repeat edges, if n_edges is > n_vertices, program will hang. As long as you use fairly more vertices, should be fine, otherwise just run again.
-"""
+import os 
 
 separator = 0
-
-# add some number of edges in range [1, e] for each vertex
-# don't add any self-edges or repeat edges
-def generate_graph(vertices, edges):
-	G = nx.DiGraph()
-	G.add_nodes_from(range(vertices))
-
-	for v in range(vertices):
-		n_edges = random.randrange(1, edges+1)
-		added_edges = 0
-		while added_edges != n_edges:
-			dest = random.randrange(vertices)
-			if v != dest and not G.has_edge(v, dest):
-				G.add_edge(v, dest)
-				added_edges += 1
-
-# uncomment if you want every vertex to have at least one in-edge
-#	for v in G:
-#		if len(G.in_edges(v)) == 0:
-#			src = random.randrange(vertices)
-#			G.add_edge(src, v)
-
-	return G
 
 def int_to_bytestring(n, minlen=0):
 	if n > 0:
@@ -64,36 +34,38 @@ def write_gf(G):
 	global separator
 	offset = 0
 	total_inedges = 0
-	max_inedges = 0
 	with open('mem_init.hex', 'w') as f:
 		# vertex array
-		for node in G:
+		for v in G.Nodes():
+			node = v.GetId()
 			# write offset into ie vertices array
 			f.write(int_to_bytestring(offset))
-			offset += len(G.in_edges(node))
+			offset += v.GetInDeg()
 			update_separator(f)
 			# write number of out-edges this vertex has
-			f.write(int_to_bytestring(len(G.out_edges(node))))
+			f.write(int_to_bytestring(v.GetOutDeg()))
 			update_separator(f)
 		# 0-pad the rest
 		while separator % 8 != 0:
 			f.write(int_to_bytestring(0))
 			update_separator(f)
 		# in-edge array
-		for node in G:
+		for node in G.Nodes():
 			random_edges = []
-			for in_edge in G.in_edges(node):
-				random_edges.append(in_edge[0])
+			n_ie = node.GetInDeg()
+			#print("in-edges:", n_ie)
+			for i in range(n_ie):
+				in_edge = node.GetInNId(i)
+				random_edges.append(in_edge)
 			random.shuffle(random_edges)
 			for in_edge in random_edges:
 				f.write(int_to_bytestring(in_edge))
 				update_separator(f)
-			assert(len(G.in_edges(node)) == len(random_edges))
+			#print("random edges:", len(random_edges))
+			assert(node.GetInDeg() == len(random_edges))
 			total_inedges += len(random_edges)
-			if len(random_edges) > max_inedges:
-				max_inedges = len(random_edges)
 		# fill writespace with 0s
-		for _ in range(2*G.number_of_nodes()):
+		for _ in range(2*G.GetNodes()):
 			f.write(int_to_bytestring(0))
 			update_separator(f)
 		# 0-pad the rest
@@ -103,30 +75,30 @@ def write_gf(G):
 	
 	
 	print("--- parameters (in decimal) ---")
-	print("N_VERT:", G.number_of_nodes())
+	print("N_VERT:", G.GetNodes())
 	print("N_INEDGES:", total_inedges)
 	print("--- potential address parameters ---")
 	print("VADDR:", str(0))
 	# 8 bytes * 2 * N_VERT
-	vbytes = 16 * G.number_of_nodes()
+	vbytes = 16 * G.GetNodes()
 	ieaddr = vbytes if (vbytes % 64 == 0) else vbytes + (64 - vbytes % 64)
 	print("IEADDR:", str(ieaddr))
 	wa0 = ieaddr + 8 * total_inedges
 	print("WRITE_ADDR0:", str(wa0))
-	print("WRITE_ADDR1:", str(wa0 + 8 * G.number_of_nodes()))
-
+	print("WRITE_ADDR1:", str(wa0 + 8 * G.GetNodes()))
+    
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')
-	parser.add_argument('-v', '--vertices', type=int,
-							help='number of vertices in graph')
-	parser.add_argument('-e', '--edges', type=int,
-							help='max edges per node')
+	parser.add_argument('-v', '--vertices', type=int)
+	parser.add_argument('-e', '--edges', type=int)
 
 	args = parser.parse_args()
-	vertices = args.vertices
-	edges = args.edges
 
-	G = generate_graph(vertices, edges)
+	Rnd = snap.TRnd()
+	G = snap.GenRMat(args.vertices, args.edges, .6, .1, .15, Rnd)
+
+	#for EI in G.Edges():
+	#	print("edge: (%d, %d)" % (EI.GetSrcNId(), EI.GetDstNId()))
 
 	write_gf(G)
 

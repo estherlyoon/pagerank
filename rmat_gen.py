@@ -1,42 +1,21 @@
 #!/usr/bin/env python3
 
 import argparse
-import random
-import sys
-import os
-import networkx as nx
+import snap
 
-""" 
-mem_init.hex structure:
-	n_vertices | n_edges | vertex map | in-edges map | # out-edges map
-	everything is represented as a 64-bit integer (written as 8 hex characters), but this could be easily parameterized
-	note: since we're not adding repeat edges, if n_edges is > n_vertices, program will hang. As long as you use fairly more vertices, should be fine, otherwise just run again.
-"""
+def main():
+	parser = argparse.ArgumentParser(description='Create graph representation file')
+	parser.add_argument('-v', '--vertices', type=int)
+	parser.add_argument('-e', '--edges', type=int)
 
-separator = 0
+	args = parser.parse_args()
 
-# add some number of edges in range [1, e] for each vertex
-# don't add any self-edges or repeat edges
-def generate_graph(vertices, edges):
-	G = nx.DiGraph()
-	G.add_nodes_from(range(vertices))
+	Rnd = snap.TRnd()
+	Graph = snap.GenRMat(args.vertices, args.edges, .6, .1, .15, Rnd)
 
-	for v in range(vertices):
-		n_edges = random.randrange(1, edges+1)
-		added_edges = 0
-		while added_edges != n_edges:
-			dest = random.randrange(vertices)
-			if v != dest and not G.has_edge(v, dest):
-				G.add_edge(v, dest)
-				added_edges += 1
-
-# uncomment if you want every vertex to have at least one in-edge
-#	for v in G:
-#		if len(G.in_edges(v)) == 0:
-#			src = random.randrange(vertices)
-#			G.add_edge(src, v)
-
-	return G
+	for EI in Graph.Edges():
+		    print("edge: (%d, %d)" % (EI.GetSrcNId(), EI.GetDstNId()))
+	#G = generate_graph(args.filename)
 
 def int_to_bytestring(n, minlen=0):
 	if n > 0:

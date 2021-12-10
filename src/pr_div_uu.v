@@ -152,7 +152,7 @@ module div_uu(clk, ena, iready, z, d, q, s, div0, ovf, oready);
 
 	always @(posedge clk)
 		if (ena)
-			for(v0=1; v0 <= d_width; v0=v0+1)
+			for(v0=1; v0 < d_width; v0=v0+1)
 				v_pipe[v0] <= v_pipe[v0-1];
 
 	// generate divisor (d) pipe
@@ -209,7 +209,7 @@ module div_uu(clk, ena, iready, z, d, q, s, div0, ovf, oready);
 
 	always @(posedge clk) begin
 	  if(ena) begin
-		oready <= v_pipe[d_width];
+		oready <= v_pipe[d_width-1];
 	    q <= gen_q(q_pipe[d_width-1], s_pipe[d_width]);
 	  end
 	end

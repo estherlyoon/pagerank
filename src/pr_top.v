@@ -63,13 +63,13 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_VERT;
-		softreg_req_data = 64'd1000;
+		softreg_req_data = 64'd1001;
 	end
 	32'd4: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `N_INEDGES;
-		softreg_req_data = 64'd5417;
+		softreg_req_data = 64'd1001;
 	end
 	32'd5: begin
 		softreg_req_valid = 1;
@@ -81,19 +81,19 @@ always @(*) begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `IEADDR;
-		softreg_req_data = 64'd16000; // byte-addressable memory, 10(v+nout edges)*8bytes
+		softreg_req_data = 64'd16064; // byte-addressable memory, 10(v+nout edges)*8bytes
 	end
 	32'd7: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR0;
-		softreg_req_data = 64'd59336;
+		softreg_req_data = 64'd24072;
 	end
 	32'd8: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
 		softreg_req_addr = `WRITE_ADDR1;
-		softreg_req_data = 64'd67336;
+		softreg_req_data = 64'd32080;
 	end
 	32'd9: begin
 		softreg_req_valid = 1;
@@ -104,14 +104,14 @@ always @(*) begin
 	32'd10: begin
 		softreg_req_valid = 1;
 		softreg_req_isWrite = 1;
-		softreg_req_addr = `DONE_READ_PARAMS;
+		softreg_req_addr = `DO_INIT;
 		softreg_req_data = 64'd0;
 	end
-	32'd500000: begin
+	32'd11: begin
 		softreg_req_valid = 1;
-		softreg_req_isWrite = 0;
-		softreg_req_addr = `DONE_ALL;
-		softreg_req_data = 64'h0;
+		softreg_req_isWrite = 1;
+		softreg_req_addr = `DONE_READ_PARAMS;
+		softreg_req_data = 64'd0;
 	end
 	default: begin
 		softreg_req_valid = 0;

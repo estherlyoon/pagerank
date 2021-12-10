@@ -63,9 +63,10 @@ reg [7:0] arlen;   // TODO: verify page boundaries
 reg [2:0] arsize;  // TODO: handle properly
 
 reg [1:0] ar_state = 0;
+reg [7:0] read_lat = 0;
 
-assign arready_m = ar_state == 2'h0 | (ar_state == 2'h1 &rready_m & arlen == 0);
-assign rvalid_m  = ar_state == 2'h1;
+assign arready_m = ar_state == 2'h0 | (ar_state == 2'h1 && rready_m && arlen == 0 && read_lat == 8);
+assign rvalid_m  = ar_state == 2'h1 && read_lat == 8;
 
 assign rid_m = arid;
 assign rdata_m = mem[araddr[63:6]];
@@ -94,21 +95,26 @@ always @(posedge clk) begin
 		2'h1: begin
 			if (rready_m) begin
 				rcounts[arid] <= rcounts[arid] + 1;
-				if (arlen == 0) begin
-					// don't waste a cycle if ready to read
-					if (arvalid_m) begin
-						arid <= arid_m;
-						araddr <= araddr_m;
-						arlen <= arlen_m;
-						arsize <= arsize_m;
+				if (read_lat == 8) begin
+					if (arlen == 0) begin
+						// don't waste a cycle if ready to read
+						if (arvalid_m) begin
+							arid <= arid_m;
+							araddr <= araddr_m;
+							arlen <= arlen_m;
+							arsize <= arsize_m;
+						end
+						else
+							ar_state <= 2'h0;
 					end
-					else
-						ar_state <= 2'h0;
+					else begin
+						arlen <= arlen - 8'h1;
+						araddr <= araddr + 64'd64;
+					end
+					read_lat <= 0;
 				end
-				else begin
-					arlen <= arlen - 8'h1;
-					araddr <= araddr + 64'd64;
-				end
+				else
+					read_lat <= read_lat + 1;
 			end
 		end
 		endcase

@@ -6,4 +6,4 @@
 `define WRITE_ADDR1 32'h28
 `define N_ROUNDS 32'h30
 `define DONE_READ_PARAMS 32'h38
-`define DONE_ALL 32'h40
+`define DO_INIT 32'h48
