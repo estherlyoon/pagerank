@@ -54,6 +54,8 @@ reg [63:0] count = 0;
 always @(posedge clk)
 	count <= count + 1;
 
+reg do_init = 0;
+
 // length of integers in bits
 localparam INT_W = 64;
 localparam BYTE = 8;
@@ -598,8 +600,6 @@ always @(posedge clk) begin
 			 32'h60: sr_resp_data <= total_rvalid2; //**
 			 32'h78: sr_resp_data <= vrd_cnt;  
 			 32'h80: sr_resp_data <= ierd_cnt;
-			 32'h88: sr_resp_data <= init_val;
-			 32'h90: sr_resp_data <= init_div_over;
 			 32'ha0: sr_resp_data <= vert_fifo_empty;
 			 32'ha8: sr_resp_data <= inedge_fifo_empty;
 			 32'hb0: sr_resp_data <= vert_fifo_rdreq;
@@ -716,8 +716,14 @@ always @(posedge clk) begin
 					$display("pr_waddr: 0x%x", base_pr_waddr);
 					$display("dividend = %0b, divisor = %0b", (1 << PREC), n_vertices);
 
-					init_din <= 1;
-					round <= 1;
+					if (do_init) begin
+						round <= 1;
+						init_din <= 1;
+					end
+					else begin
+						round <= 2;
+						init_div_over <= 1;
+					end
 					total_runs <= total_runs - 1;
 					next_run <= 0;
 				end
@@ -1143,6 +1149,7 @@ always @(posedge clk) begin
 			`WRITE_ADDR0: base_pr_raddr <= softreg_req_data;
 			`WRITE_ADDR1: base_pr_waddr <= softreg_req_data;
 			`N_ROUNDS: total_rounds <= softreg_req_data + 1; // add 1 for init stage
+			`DO_INIT: do_init <= softreg_req_data;
 		endcase
 	end
 end
