@@ -4,3 +4,4 @@ bin/
 *.txt
 *.gtkw
 div_bench/
+data/

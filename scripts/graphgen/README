@@ -1,3 +1,5 @@
+The only important script here is graphgen.cpp. You can ignore the python scripts, they do basically the same thing in more specific formats (but are much slower).
+
 To compile graphgen.cpp:
 	make graphgen
 
