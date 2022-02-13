@@ -1,0 +1,16 @@
+Control flow of running scripts goes like:
+	benchmark.sh: 
+		- calls all combinations of configuations by parameterizing run.py
+	run.py: 
+		- parses JSON to get args for main script, starts/kills daemon, copies files over, drops caches
+		- requires existence of input_data.json
+		- will make a logs/ directory where output is piped to .data files (where the data you care about will be)
+	pagerank.cpp: 
+		- does what you'd expect with reading/writing softregs-- can compile the same way you do for the other .cpp scripts
+		- condition for exiting main loop is reaching n rounds
+		- outputs total throughput/time/memory access info along with per round info for up to 3 rounds for reads and 2 for writes (as writes are less important in this application, though could easily add output for third round)
+
+All these files should be in app_sw (some relative paths are used e.g. in starting daemon and parsing the json, so you'd have to change the scripts a bit if you want to run them from somewhere else). You'll also need to have a data/ directory with the binaries or symlinks to them inside.
+
+Note that in the current configuration, NOT performing initialization of the pagerank graph is the default (so cold CPU/FPGA numbers are more accurrate with uniform memory access amounts). In that vein, copying over files each time is only necessary the first time you run since we don't care about values being correct and behavior isn't impacted by written back values (the current scripts copy over every time though).
+		

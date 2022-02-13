@@ -7,3 +7,4 @@ memory layout:
         - second array stores in-edge vertex IDs (IEV) for each vertex in first array
             - one word per IEV
             - e.g., will store [v0's IEVs | v1's IEVs ... | v(n-1)'s IEV]
+		- 0-padding is added at the end of the file to account for the two write spaces used for recording pageranks
