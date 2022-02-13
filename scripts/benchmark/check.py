@@ -2,7 +2,7 @@
 
 import argparse
 
-# this is just a script I used when debugging to check for invalid vpns
+# just something I used when debugging to check for invalid vpns
 def main():
 	parser = argparse.ArgumentParser(description='Create graph representation file')
 	parser.add_argument('-f', '--filename', type=str,

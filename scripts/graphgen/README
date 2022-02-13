@@ -1,5 +1,3 @@
-Probably the only script you'll need to use is graphgen.cpp. The python script do similar things but are much slower when generating large graphs.
-
 To compile graphgen.cpp:
 	make graphgen
 
@@ -13,4 +11,3 @@ Notes:
 - The script only ensures that there's no src->src edges; it allows repeat edges (because it took way longer to generate a graph ensuring there were no repeats)
 - To calculate file size in bytes from # of vertices and edges (or vice versa), use filesz = V*32 + E*8
 	(16 bytes for each vertex in the first part of the graph + (8 for pagerank writeback * 2) + 8 bytes per edge)
-

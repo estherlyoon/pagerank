@@ -68,7 +68,7 @@ def main():
 
 			# start daemon, pipe to log
 			wd = os.getcwd()
-			os.chdir("../daemon")
+			os.chdir("../../daemon")
 			daemon = subprocess.run(["sudo", "./start.sh"])
 			os.chdir(wd)
 			time.sleep(5)
